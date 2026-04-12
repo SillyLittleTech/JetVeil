@@ -53,6 +53,16 @@ function isUsableScramjetWorker(worker) {
   }
 }
 
+/** Return the best currently available Scramjet service worker. */
+function getScramjetWorker(registration) {
+  return [
+    navigator.serviceWorker.controller,
+    registration?.active,
+    registration?.waiting,
+    registration?.installing,
+  ].find((worker) => isUsableScramjetWorker(worker)) ?? null;
+}
+
 /** One-time SW recovery: unregister stale workers and reload. */
 async function resetServiceWorkerAndReload(stepMessage) {
   const retried = localStorage.getItem(SW_RETRY_KEY) === "1";
@@ -122,6 +132,7 @@ async function main() {
     return;
   }
   let sw;
+  let swRegistration;
   try {
     // updateViaCache:"none" ensures the browser always re-fetches controller.sw.js
     // (imported via importScripts) on every SW update check, so a redeployment of
@@ -131,21 +142,13 @@ async function main() {
       updateViaCache: "none",
     });
     setStep("Step 3/4 — Waiting for service worker to activate…");
-    const reg = await withTimeout(navigator.serviceWorker.ready, 12_000, "Service worker activation");
-    const controller = navigator.serviceWorker.controller;
-    if (isUsableScramjetWorker(controller)) {
-      sw = controller;
-    } else {
-      // ready() can resolve before this tab is controlled on first load.
-      // Reload once so the page is guaranteed to run under the active SW.
-      const activeWorker = [reg.active, reg.waiting, reg.installing]
-        .find((worker) => isUsableScramjetWorker(worker));
-      if (!activeWorker) {
-        throw new Error("Service worker is not available for Scramjet handshake.");
-      }
-      if (await resetServiceWorkerAndReload("Step 3/4 — Attaching service worker…")) return;
-      throw new Error("Service worker is active but not controlling this page.");
-    }
+    swRegistration = await withTimeout(
+      navigator.serviceWorker.ready,
+      12_000,
+      "Service worker activation",
+    );
+    sw = getScramjetWorker(swRegistration);
+    if (!sw) throw new Error("Service worker is not available for Scramjet handshake.");
     localStorage.removeItem(SW_RETRY_KEY);
   } catch (err) {
     if (await resetServiceWorkerAndReload("Step 3/4 — Resetting service worker…")) return;
@@ -154,14 +157,32 @@ async function main() {
     return;
   }
 
+  async function createProxyFrame() {
+    const { Controller } = $scramjetController;
+    let lastHandshakeError = null;
+
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      const candidate = getScramjetWorker(swRegistration) ?? sw;
+      const controller = new Controller({ serviceworker: candidate, transport });
+      try {
+        await withTimeout(controller.wait(), 12_000, "Service worker handshake");
+        localStorage.removeItem(SW_RETRY_KEY);
+        return controller.createFrame($frame);
+      } catch (err) {
+        lastHandshakeError = err;
+        if (attempt < 2) {
+          await new Promise((resolve) => setTimeout(resolve, 350));
+        }
+      }
+    }
+
+    throw lastHandshakeError ?? new Error("Service worker handshake failed.");
+  }
+
   // ── 5. Instantiate the scramjet Controller ───────────────────────────────
   setStep("Step 4/4 — Handshaking with service worker…");
-  let controller;
   try {
-    const { Controller } = $scramjetController;
-    controller = new Controller({ serviceworker: sw, transport });
-    await withTimeout(controller.wait(), 20_000, "Service worker handshake");
-    localStorage.removeItem(SW_RETRY_KEY);
+    await createProxyFrame();
   } catch (err) {
     if (await resetServiceWorkerAndReload("Step 4/4 — Resetting service worker…")) return;
     localStorage.removeItem(SW_RETRY_KEY);
@@ -169,15 +190,18 @@ async function main() {
     return;
   }
 
-  // Create a reusable proxy frame bound to the iframe element
-  const proxyFrame = controller.createFrame($frame);
-
   /** Navigate the proxy iframe to the given URL. */
-  function go(url) {
-    $homePg.hidden = true;
-    $frame.hidden  = false;
-    $input.value   = url;
-    proxyFrame.go(url);
+  async function go(url) {
+    try {
+      const proxyFrame = await createProxyFrame();
+      $homePg.hidden = true;
+      $frame.hidden  = false;
+      $input.value   = url;
+      proxyFrame.go(url);
+    } catch (err) {
+      if (await resetServiceWorkerAndReload("Step 4/4 — Reconnecting service worker…")) return;
+      showError(`Navigation setup failed: ${err.message}`);
+    }
   }
 
   /** Return to the JetVeil home page. */
@@ -197,21 +221,21 @@ async function main() {
   const targetUrl = params.get("url");
   if (targetUrl) {
     const url = normaliseUrl(targetUrl);
-    if (url) { go(url); return; }
+    if (url) { await go(url); return; }
   }
 
   // ── 8. Wire up URL bar ────────────────────────────────────────────────────
-  $form.addEventListener("submit", (e) => {
+  $form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const url = normaliseUrl($input.value);
-    if (url) go(url);
+    if (url) await go(url);
   });
 
   // Quick-access cards
   document.querySelectorAll(".quick-card").forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       const url = btn.dataset.url;
-      if (url) go(url);
+      if (url) await go(url);
     });
   });
 
