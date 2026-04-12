@@ -43,8 +43,11 @@ class _HomeScreenState extends State<HomeScreen> {
     final proxyUrl = settings.proxy.buildProxyUrl(url);
 
     final uri = Uri.parse(proxyUrl);
+    final launchMode = settings.proxy.openInNewTab
+        ? LaunchMode.externalApplication
+        : LaunchMode.inAppBrowserView;
     if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
+      await launchUrl(uri, mode: launchMode);
     } else {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

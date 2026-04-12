@@ -9,11 +9,13 @@ class ThemeNotifier extends ChangeNotifier {
   Color get accentColor => _accentColor;
 
   void setThemeMode(ThemeMode mode) {
+    if (_themeMode == mode) return;
     _themeMode = mode;
     notifyListeners();
   }
 
   void setAccentColor(Color color) {
+    if (_accentColor.value == color.value) return;
     _accentColor = color;
     notifyListeners();
   }

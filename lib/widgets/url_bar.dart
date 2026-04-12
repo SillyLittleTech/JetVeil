@@ -27,10 +27,14 @@ class _UrlBarState extends State<UrlBar> {
   void initState() {
     super.initState();
     _controller = TextEditingController(text: widget.initialValue);
+    _controller.addListener(_onTextChanged);
   }
+
+  void _onTextChanged() => setState(() {});
 
   @override
   void dispose() {
+    _controller.removeListener(_onTextChanged);
     _controller.dispose();
     _focusNode.dispose();
     super.dispose();

@@ -168,10 +168,18 @@ jobs:
       - name: Build macOS release
         run: flutter build macos --release
 
+      - name: Check for macOS app bundle
+        run: |
+          if [ ! -d "build/macos/Build/Products/Release/jet_veil.app" ]; then
+            echo "::error::jet_veil.app not found. macOS build may have failed." >&2
+            ls -la build/macos/Build/Products/Release || true
+            exit 1
+          fi
+
       - name: Package macOS build
         run: |
           cd build/macos/Build/Products/Release
-          zip -r ../../../../../jetveil-macos.zip JetVeil.app
+          zip -r ../../../../../jetveil-macos.zip jet_veil.app
 
       - uses: actions/upload-artifact@v4
         with:
