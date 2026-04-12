@@ -26,10 +26,28 @@ import { lookup as mimeLookup } from "mime-types";
 // The build step (scripts/copy-assets.mjs) copies node_modules dist trees there
 // so that Vercel's @vercel/node Lambda never needs to reach into node_modules at
 // runtime (ncc bundling makes those paths unreliable in production).
+//
+// On Vercel, @vercel/node bundles this file with ncc, which changes __dirname.
+// The includeFiles config copies public/** relative to the *source* root, so
+// files end up alongside the compiled function.  We try multiple candidate
+// locations and pick the first one that actually contains our files.
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
-const publicPath     = resolve(join(__dirname, "../public"));
+function findPublicDir() {
+  const candidates = [
+    resolve(join(__dirname, "../public")),       // local dev (src/ → ../public)
+    resolve(join(__dirname, "public")),           // Vercel ncc output (flat)
+    resolve(join(process.cwd(), "public")),       // Vercel process.cwd() fallback
+    resolve(join(process.cwd(), "server/public")),// Vercel root cwd fallback
+  ];
+  for (const dir of candidates) {
+    if (existsSync(join(dir, "index.html"))) return dir;
+  }
+  return candidates[0];
+}
+
+const publicPath     = findPublicDir();
 const scramjetBase   = join(publicPath, "scram");
 const controllerBase = join(publicPath, "controller");
 const bamBase        = join(publicPath, "bam");
@@ -108,6 +126,7 @@ export default function handler(req, res) {
   // Security headers required for Scramjet's SharedArrayBuffer usage
   res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
   res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
+  res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
 
   const rawUrl = req.url ?? "/";
   const url = rawUrl.split("?")[0]; // strip query string for routing
