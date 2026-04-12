@@ -26,3 +26,9 @@ Thumbs.db
 
 # Test coverage
 coverage/
+
+# JetVeil — generated static assets (built by npm run build / copy-assets.mjs)
+server/public/scram/
+server/public/controller/
+server/public/bam/
+

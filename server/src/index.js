@@ -20,26 +20,19 @@ import { fileURLToPath } from "node:url";
 import { createBareServer } from "@tomphttp/bare-server-node";
 import { lookup as mimeLookup } from "mime-types";
 
-import { scramjetPath } from "@mercuryworkshop/scramjet/path";
-
 // ─── Paths ────────────────────────────────────────────────────────────────────
+//
+// All static assets are served from pre-built subdirectories inside public/.
+// The build step (scripts/copy-assets.mjs) copies node_modules dist trees there
+// so that Vercel's @vercel/node Lambda never needs to reach into node_modules at
+// runtime (ncc bundling makes those paths unreliable in production).
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
-const publicPath    = resolve(join(__dirname, "../public"));
-const scramjetBase  = resolve(scramjetPath);
-
-// Use import.meta.url-relative URLs to locate sibling node_modules directly.
-// This avoids going through Node's package-exports resolution, which would fail
-// for packages that declare an empty or restrictive "exports" field (scramjet-
-// controller has no "exports" key at all; bare-as-module3 only exports ".").
-const controllerBase = fileURLToPath(
-  new URL("../node_modules/@mercuryworkshop/scramjet-controller/dist", import.meta.url)
-);
-
-const bamBase = fileURLToPath(
-  new URL("../node_modules/@mercuryworkshop/bare-as-module3/dist", import.meta.url)
-);
+const publicPath     = resolve(join(__dirname, "../public"));
+const scramjetBase   = join(publicPath, "scram");
+const controllerBase = join(publicPath, "controller");
+const bamBase        = join(publicPath, "bam");
 
 // ─── Bare server (HTTP proxy transport) ──────────────────────────────────────
 

@@ -1,12 +1,13 @@
 {
   "version": 2,
-  "buildCommand": "npm install",
+  "buildCommand": "npm install && npm run build",
   "builds": [
     {
       "src": "src/index.js",
       "use": "@vercel/node",
       "config": {
-        "maxLambdaSize": "50mb"
+        "maxLambdaSize": "50mb",
+        "includeFiles": ["public/**"]
       }
     }
   ],
