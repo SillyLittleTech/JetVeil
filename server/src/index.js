@@ -13,7 +13,7 @@
  */
 
 import { createServer } from "node:http";
-import { appendFileSync, createReadStream, existsSync, statSync } from "node:fs";
+import { createReadStream, existsSync, statSync } from "node:fs";
 import { join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -130,40 +130,6 @@ export default function handler(req, res) {
 
   const rawUrl = req.url ?? "/";
   const url = rawUrl.split("?")[0]; // strip query string for routing
-
-  // #region agent log
-  if (url === "/__debug-log" && req.method === "POST") {
-    let body = "";
-    req.on("data", (chunk) => {
-      body += chunk;
-      if (body.length > 16_384) {
-        body = body.slice(0, 16_384);
-      }
-    });
-    req.on("end", () => {
-      try {
-        const parsed = JSON.parse(body || "{}");
-        const payload = {
-          hypothesisId: parsed.hypothesisId ?? "UNKNOWN",
-          location: parsed.location ?? "unknown",
-          message: parsed.message ?? "no message",
-          data: parsed.data ?? {},
-          timestamp: parsed.timestamp ?? Date.now(),
-        };
-        appendFileSync("/opt/cursor/logs/debug.log", `${JSON.stringify(payload)}\n`);
-        res.writeHead(204).end();
-      } catch {
-        res.writeHead(400, { "Content-Type": "text/plain" });
-        res.end("invalid debug log payload");
-      }
-    });
-    req.on("error", () => {
-      res.writeHead(500, { "Content-Type": "text/plain" });
-      res.end("debug log stream failed");
-    });
-    return;
-  }
-  // #endregion
 
   // ── Bare proxy ─────────────────────────────────────────────────────────────
   if (bare.shouldRoute(req)) {
