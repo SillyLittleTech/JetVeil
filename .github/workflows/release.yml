@@ -1,0 +1,245 @@
+name: Build & Release
+
+# Triggers only on changes to the Flutter app source.
+# Web deployment is handled automatically by Cloudflare Pages (configured in
+# the CF dashboard — no CI step needed here).
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'lib/**'
+      - 'web/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+      - 'analysis_options.yaml'
+
+permissions:
+  contents: write
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────────────
+  # Read version from pubspec.yaml
+  # ────────────────────────────────────────────────────────────────────────────
+  version:
+    name: Read version
+    runs-on: ubuntu-latest
+    outputs:
+      version:      ${{ steps.ver.outputs.version }}
+      build_number: ${{ steps.ver.outputs.build_number }}
+      tag:          ${{ steps.ver.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version
+        id: ver
+        run: |
+          VER=$(grep '^version:' pubspec.yaml | awk '{print $2}' | cut -d'+' -f1)
+          BUILD=$(grep '^version:' pubspec.yaml | awk '{print $2}' | cut -d'+' -f2)
+          echo "version=${VER}"        >> "$GITHUB_OUTPUT"
+          echo "build_number=${BUILD}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${VER}+${BUILD}"  >> "$GITHUB_OUTPUT"
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Linux desktop build
+  # ────────────────────────────────────────────────────────────────────────────
+  build-linux:
+    name: Build Linux
+    runs-on: ubuntu-latest
+    needs: version
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            clang cmake ninja-build pkg-config \
+            libgtk-3-dev liblzma-dev libssl-dev
+
+      - name: Enable Linux desktop & generate platform files
+        run: |
+          flutter config --enable-linux-desktop
+          flutter create --platforms=linux .
+
+      - run: flutter pub get
+
+      - name: Build Linux release
+        run: flutter build linux --release
+
+      - name: Package
+        run: |
+          cd build/linux/x64/release/bundle
+          tar -czf ../../../../../jetveil-linux-x64.tar.gz .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-build
+          path: jetveil-linux-x64.tar.gz
+          retention-days: 1
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Windows desktop build
+  # ────────────────────────────────────────────────────────────────────────────
+  build-windows:
+    name: Build Windows
+    runs-on: windows-latest
+    needs: version
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Enable Windows desktop & generate platform files
+        run: |
+          flutter config --enable-windows-desktop
+          flutter create --platforms=windows .
+
+      - run: flutter pub get
+
+      - name: Build Windows release
+        run: flutter build windows --release
+
+      - name: Package
+        shell: pwsh
+        run: |
+          Compress-Archive `
+            -Path   build/windows/x64/runner/Release/* `
+            -DestinationPath jetveil-windows-x64.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: jetveil-windows-x64.zip
+          retention-days: 1
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # macOS desktop build
+  # ────────────────────────────────────────────────────────────────────────────
+  build-macos:
+    name: Build macOS
+    runs-on: macos-latest
+    needs: version
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Enable macOS desktop & generate platform files
+        run: |
+          flutter config --enable-macos-desktop
+          flutter create --platforms=macos .
+
+      - run: flutter pub get
+
+      - name: Install CocoaPods
+        run: |
+          sudo gem install -n /usr/local/bin cocoapods
+          pod repo update
+
+      - name: Build macOS release
+        run: flutter build macos --release
+
+      - name: Package
+        run: |
+          cd build/macos/Build/Products/Release
+          zip -r ../../../../../jetveil-macos.zip JetVeil.app
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-build
+          path: jetveil-macos.zip
+          retention-days: 1
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Web build → deploy to Vercel (jetveil.sillylittle.tech)
+  # Requires GitHub secrets: VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID_WEB
+  # ────────────────────────────────────────────────────────────────────────────
+  build-and-deploy-web:
+    name: Build Web & Deploy to Vercel
+    runs-on: ubuntu-latest
+    needs: version
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      - name: Build web release
+        run: flutter build web --release --base-href "/"
+
+      - name: Deploy to Vercel
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token:      ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id:     ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID_WEB }}
+          working-directory: ./build/web
+          vercel-args:       '--prod'
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Create GitHub Release with all three desktop builds
+  # ────────────────────────────────────────────────────────────────────────────
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs:
+      - version
+      - build-linux
+      - build-windows
+      - build-macos
+    env:
+      TAG:   ${{ needs.version.outputs.tag }}
+      VER:   ${{ needs.version.outputs.version }}
+      BUILD: ${{ needs.version.outputs.build_number }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          name: "JetVeil ${{ env.VER }} (build ${{ env.BUILD }})"
+          prerelease: false
+          generate_release_notes: true
+          body: |
+            ## JetVeil v${{ env.VER }}+${{ env.BUILD }}
+
+            Automated release built from commit `${{ github.sha }}`.
+
+            ### 🌐 Web App
+            Available at **[jetveil.sillylittle.tech](https://jetveil.sillylittle.tech)**
+            _(GitHub Pages also redirects: [sillylittletech.github.io/JetVeil](https://sillylittletech.github.io/JetVeil))_
+
+            ### 🖥️ Desktop Downloads
+            | Platform | File |
+            |----------|------|
+            | 🐧 Linux (x64) | `jetveil-linux-x64.tar.gz` |
+            | 🪟 Windows (x64) | `jetveil-windows-x64.zip` |
+            | 🍎 macOS | `jetveil-macos.zip` |
+
+            ### ⚙️ Server
+            Deploy the Scramjet backend to Vercel with the one-click button in **Settings**.
+          files: |
+            artifacts/linux-build/jetveil-linux-x64.tar.gz
+            artifacts/windows-build/jetveil-windows-x64.zip
+            artifacts/macos-build/jetveil-macos.zip

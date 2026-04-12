@@ -1,0 +1,12 @@
+# Cloudflare Pages _redirects
+#
+# This file belongs in the repo that powers projects.sillylittle.tech.
+# It redirects the /JetVeil path (and any sub-paths) to the dedicated subdomain.
+#
+# Cloudflare Pages _redirects syntax:
+#   <source>  <destination>  <status>
+#
+# :splat captures everything after the wildcard so deep links still resolve.
+
+/JetVeil     https://jetveil.sillylittle.tech          301
+/JetVeil/*   https://jetveil.sillylittle.tech/:splat   301

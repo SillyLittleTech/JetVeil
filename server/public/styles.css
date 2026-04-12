@@ -1,0 +1,293 @@
+/* ── JetVeil dark theme ────────────────────────────────────────────────────── */
+
+:root {
+  --bg:          #0D0D17;
+  --surface:     #141420;
+  --surface-hi:  #1E1E2E;
+  --border:      #2A2A3E;
+  --accent:      #00E5FF;
+  --accent-dim:  rgba(0, 229, 255, 0.12);
+  --text:        #E8E8F0;
+  --text-muted:  #888899;
+  --error:       #FF3D00;
+  --radius:      12px;
+  --radius-sm:   8px;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Loading screen ─────────────────────────────────────────────────────────── */
+
+#loading-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  gap: 16px;
+  color: var(--accent);
+}
+
+.logo-pulse svg {
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1;   transform: scale(1);    }
+  50%       { opacity: 0.4; transform: scale(0.92); }
+}
+
+.loading-label {
+  font-size: 13px;
+  letter-spacing: 0.6px;
+  color: var(--text-muted);
+}
+
+/* ── Error screen ────────────────────────────────────────────────────────────── */
+
+#error-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  gap: 12px;
+  padding: 24px;
+  text-align: center;
+}
+
+#error-screen h2 {
+  color: var(--error);
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+#error-screen p {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  max-width: 400px;
+}
+
+#error-screen button {
+  margin-top: 8px;
+  padding: 10px 24px;
+  background: var(--surface-hi);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+#error-screen button:hover { background: var(--surface); }
+
+/* ── App shell ───────────────────────────────────────────────────────────────── */
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+/* ── Toolbar ─────────────────────────────────────────────────────────────────── */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+}
+
+.brand-name {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--accent);
+  letter-spacing: -0.3px;
+}
+
+/* ── URL bar ─────────────────────────────────────────────────────────────────── */
+
+.url-form { flex: 1; min-width: 0; }
+
+.url-bar {
+  display: flex;
+  align-items: center;
+  background: var(--surface-hi);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.url-bar:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+
+.url-icon {
+  flex-shrink: 0;
+  margin: 0 10px;
+  color: var(--accent);
+}
+
+.url-bar input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 0.9rem;
+  padding: 9px 6px;
+}
+
+.url-bar input::placeholder { color: var(--text-muted); }
+
+.go-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 38px;
+  background: var(--accent);
+  border: none;
+  cursor: pointer;
+  color: #000;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+
+.go-btn:hover { background: #33eaff; }
+
+/* ── Toolbar actions ─────────────────────────────────────────────────────────── */
+
+.toolbar-actions { display: flex; gap: 4px; flex-shrink: 0; }
+
+.icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.icon-btn:hover {
+  color: var(--text);
+  background: var(--surface-hi);
+  border-color: var(--border);
+}
+
+/* ── Home page ───────────────────────────────────────────────────────────────── */
+
+#home-page {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  gap: 40px;
+  overflow-y: auto;
+}
+
+.home-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  text-align: center;
+  max-width: 520px;
+}
+
+.home-hero h1 {
+  font-size: 2rem;
+  font-weight: 800;
+  color: var(--accent);
+  letter-spacing: -0.5px;
+}
+
+.home-hero p {
+  color: var(--text-muted);
+  font-size: 0.95rem;
+}
+
+.home-hero a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.home-hero a:hover { text-decoration: underline; }
+
+/* ── Quick-access grid ───────────────────────────────────────────────────────── */
+
+.quick-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 12px;
+  width: 100%;
+  max-width: 600px;
+}
+
+.quick-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+}
+
+.quick-card:hover {
+  background: var(--surface-hi);
+  border-color: var(--accent);
+  transform: translateY(-2px);
+}
+
+.quick-card:active { transform: translateY(0); }
+
+.quick-icon { font-size: 1.5rem; }
+
+/* ── Responsive ─────────────────────────────────────────────────────────────── */
+
+@media (max-width: 600px) {
+  .brand-name { display: none; }
+  .toolbar    { gap: 8px; padding: 8px 12px; }
+}
