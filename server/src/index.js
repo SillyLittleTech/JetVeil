@@ -2,31 +2,47 @@
  * JetVeil — Scramjet proxy server
  *
  * Handles:
- *  - /bare/   → bare-server-node HTTP proxy (Vercel-compatible, no WebSockets needed)
- *  - /scram/  → Scramjet static files (SW, runtime JS)
- *  - /baremux/→ bare-mux client worker
- *  - /*       → JetVeil public UI (index.html + assets)
+ *  - /bare/        → bare-server-node HTTP proxy (Vercel-compatible, no WebSockets needed)
+ *  - /scram/       → Scramjet v2 static files (scramjet_bundled.js, scramjet.wasm, etc.)
+ *  - /scramjet/    → Scramjet runtime files expected by the controller config
+ *  - /controller/  → scramjet-controller dist files (controller.api/inject/sw.js)
+ *  - /bam/         → bare-as-module3 dist files (direct bare-server transport)
+ *  - /*            → JetVeil public UI (index.html + assets)
  *
  * Deploy to Vercel: one-click, free tier, no extra configuration.
  */
 
 import { createServer } from "node:http";
 import { createReadStream, existsSync, statSync } from "node:fs";
-import { join, normalize, resolve } from "node:path";
+import { join, normalize, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 
 import { createBareServer } from "@tomphttp/bare-server-node";
 import { lookup as mimeLookup } from "mime-types";
 
 import { scramjetPath } from "@mercuryworkshop/scramjet/path";
-import { baremuxPath } from "@mercuryworkshop/bare-mux/node";
 
 // ─── Paths ────────────────────────────────────────────────────────────────────
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
-const publicPath = resolve(join(__dirname, "../public"));
-const scramjetBase = resolve(scramjetPath);
-const baremuxBase  = resolve(baremuxPath);
+const _require   = createRequire(import.meta.url);
+
+const publicPath    = resolve(join(__dirname, "../public"));
+const scramjetBase  = resolve(scramjetPath);
+
+// Resolve scramjet-controller dist (no path export — resolve via known dist file)
+const controllerBase = resolve(
+  dirname(_require.resolve("@mercuryworkshop/scramjet-controller/dist/controller.sw.js"))
+);
+
+// Resolve bare-as-module3 dist (exports only "." → lib/index.cjs for Node;
+// walk up to package root then into dist/)
+const bamBase = resolve(
+  dirname(_require.resolve("@mercuryworkshop/bare-as-module3")),
+  "..",
+  "dist"
+);
 
 // ─── Bare server (HTTP proxy transport) ──────────────────────────────────────
 
@@ -111,16 +127,28 @@ export default function handler(req, res) {
     return bare.routeRequest(req, res);
   }
 
-  // ── Scramjet static files ──────────────────────────────────────────────────
+  // ── Scramjet static files (/scram/ → scramjet dist) ──────────────────────
   if (url.startsWith("/scram/")) {
     const rel = url.slice("/scram/".length);
     return serveFile(res, safeJoin(scramjetBase, rel));
   }
 
-  // ── bare-mux client worker ─────────────────────────────────────────────────
-  if (url.startsWith("/baremux/")) {
-    const rel = url.slice("/baremux/".length);
-    return serveFile(res, safeJoin(baremuxBase, rel));
+  // ── Scramjet runtime files (/scramjet/ → same dist, controller-config paths)
+  if (url.startsWith("/scramjet/")) {
+    const rel = url.slice("/scramjet/".length);
+    return serveFile(res, safeJoin(scramjetBase, rel));
+  }
+
+  // ── scramjet-controller dist files ────────────────────────────────────────
+  if (url.startsWith("/controller/")) {
+    const rel = url.slice("/controller/".length);
+    return serveFile(res, safeJoin(controllerBase, rel));
+  }
+
+  // ── bare-as-module3 dist files (browser transport) ────────────────────────
+  if (url.startsWith("/bam/")) {
+    const rel = url.slice("/bam/".length);
+    return serveFile(res, safeJoin(bamBase, rel));
   }
 
   // ── Public UI (JetVeil frontend) ───────────────────────────────────────────

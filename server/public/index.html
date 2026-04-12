@@ -93,6 +93,16 @@
       </div>
     </header>
 
+    <!-- Proxy iframe — shown when a URL is loaded through Scramjet -->
+    <iframe
+      id="proxy-frame"
+      class="proxy-frame"
+      title="Proxy content"
+      sandbox="allow-forms allow-modals allow-orientation-lock allow-pointer-lock
+               allow-popups allow-presentation allow-scripts allow-same-origin"
+      hidden
+    ></iframe>
+
     <!-- Home / new-tab page (visible when no URL is loaded) -->
     <main id="home-page">
       <div class="home-hero">
@@ -140,6 +150,10 @@
     </main>
   </div>
 
+  <!-- Scramjet runtime — sets window.$scramjet (must load before browser.js) -->
+  <script src="/scramjet/scramjet_bundled.js"></script>
+  <!-- Scramjet controller API — sets window.$scramjetController -->
+  <script src="/controller/controller.api.js"></script>
   <script type="module" src="browser.js"></script>
 </body>
 </html>
