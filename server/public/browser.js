@@ -15,6 +15,7 @@
 /* global $scramjet, $scramjetController */
 
 const $loading  = document.getElementById("loading-screen");
+const $loadLbl  = document.getElementById("loading-label");
 const $error    = document.getElementById("error-screen");
 const $app      = document.getElementById("app");
 const $form     = document.getElementById("url-form");
@@ -22,6 +23,11 @@ const $input    = document.getElementById("url-input");
 const $home     = document.getElementById("home-btn");
 const $homePg   = document.getElementById("home-page");
 const $frame    = document.getElementById("proxy-frame");
+
+/** Update the visible loading label so users can see which step we are on. */
+function setStep(msg) {
+  if ($loadLbl) $loadLbl.textContent = msg;
+}
 
 /** Show the error screen with a message. */
 function showError(msg) {
@@ -45,6 +51,7 @@ function normaliseUrl(raw) {
 
 async function main() {
   // ── 1. Ensure $scramjet + $scramjetController are present ────────────────
+  setStep("Step 1/4 — Checking Scramjet runtime…");
   if (typeof $scramjet === "undefined" || typeof $scramjetController === "undefined") {
     showError("Scramjet runtime failed to load. Please reload the page.");
     return;
@@ -59,6 +66,7 @@ async function main() {
   $scramjetController.config.injectPath   = "/controller/controller.inject.js";
 
   // ── 3. Create a bare-server transport ────────────────────────────────────
+  setStep("Step 2/4 — Loading transport…");
   let transport;
   try {
     const { default: ClientV3 } = await import("/bam/index.mjs");
@@ -70,6 +78,7 @@ async function main() {
   }
 
   // ── 4. Register the service worker ───────────────────────────────────────
+  setStep("Step 3/4 — Registering service worker…");
   if (!("serviceWorker" in navigator)) {
     showError("Service workers are not supported in this browser.");
     return;
@@ -77,6 +86,7 @@ async function main() {
   let sw;
   try {
     await navigator.serviceWorker.register("/scram-sw.js", { scope: "/" });
+    setStep("Step 3/4 — Waiting for service worker to activate…");
     const reg = await navigator.serviceWorker.ready;
     sw = reg.active;
   } catch (err) {
@@ -85,11 +95,23 @@ async function main() {
   }
 
   // ── 5. Instantiate the scramjet Controller ───────────────────────────────
+  setStep("Step 4/4 — Starting Scramjet controller…");
   let controller;
   try {
     const { Controller } = $scramjetController;
     controller = new Controller({ serviceworker: sw, transport });
-    await controller.wait();
+
+    // Timeout so a hang shows a readable error instead of an infinite spinner.
+    const timeout = new Promise((_, reject) =>
+      setTimeout(() =>
+        reject(new Error(
+          "Timed out waiting for Scramjet controller (step 4/4). " +
+          "The service worker may not be communicating with the page. " +
+          "Try a hard refresh (Ctrl+Shift+R / Cmd+Shift+R)."
+        )), 20_000)
+    );
+
+    await Promise.race([controller.wait(), timeout]);
   } catch (err) {
     showError(`Scramjet controller init failed: ${err.message}`);
     return;
