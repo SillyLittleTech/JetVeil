@@ -24,6 +24,25 @@ const $home     = document.getElementById("home-btn");
 const $homePg   = document.getElementById("home-page");
 const $frame    = document.getElementById("proxy-frame");
 
+// #region agent log
+function debugLog(hypothesisId, location, message, data = {}) {
+  const payload = { hypothesisId, location, message, data, timestamp: Date.now() };
+  try {
+    const body = JSON.stringify(payload);
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon("/__debug-log", body);
+      return;
+    }
+    fetch("/__debug-log", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+      keepalive: true,
+    }).catch(() => {});
+  } catch {}
+}
+// #endregion
+
 /** Update the visible loading label so users can see which step we are on. */
 function setStep(msg) {
   if ($loadLbl) $loadLbl.textContent = msg;
@@ -50,6 +69,15 @@ function normaliseUrl(raw) {
 }
 
 async function main() {
+  // #region agent log
+  debugLog("H1", "browser.js:main:entry", "Starting browser init", {
+    href: location.href,
+    hasScramjet: typeof $scramjet !== "undefined",
+    hasController: typeof $scramjetController !== "undefined",
+    hasServiceWorker: "serviceWorker" in navigator,
+  });
+  // #endregion
+
   // ── 1. Ensure $scramjet + $scramjetController are present ────────────────
   setStep("Step 1/4 — Checking Scramjet runtime…");
   if (typeof $scramjet === "undefined" || typeof $scramjetController === "undefined") {
@@ -94,7 +122,36 @@ async function main() {
     });
     setStep("Step 3/4 — Waiting for service worker to activate…");
     const reg = await navigator.serviceWorker.ready;
-    sw = reg.active;
+    await reg.update();
+    const activeWorker = reg.active;
+    const controllerWorker = navigator.serviceWorker.controller;
+
+    const swControlReloadKey = "jetveil_sw_control_reload";
+    const hasScramjetController =
+      controllerWorker && new URL(controllerWorker.scriptURL).pathname === "/scram-sw.js";
+    if (!hasScramjetController) {
+      const hasRetriedControl = localStorage.getItem(swControlReloadKey) === "1";
+      if (!hasRetriedControl) {
+        localStorage.setItem(swControlReloadKey, "1");
+        window.location.reload();
+        return;
+      }
+      localStorage.removeItem(swControlReloadKey);
+      showError(
+        "Service worker installed but is not controlling this page. " +
+        "Try clearing site data, then reload.",
+      );
+      return;
+    }
+    localStorage.removeItem(swControlReloadKey);
+    sw = controllerWorker;
+    // #region agent log
+    debugLog("H1", "browser.js:main:sw-ready", "Service worker ready", {
+      activeScriptURL: activeWorker?.scriptURL ?? null,
+      activeState: activeWorker?.state ?? null,
+      controllerScriptURL: controllerWorker?.scriptURL ?? null,
+    });
+    // #endregion
   } catch (err) {
     showError(`Service worker registration failed: ${err.message}`);
     return;
@@ -147,41 +204,39 @@ async function main() {
   try {
     const { Controller } = $scramjetController;
     controller = new Controller({ serviceworker: sw, transport });
-
-    // Auto-healing: if the SW never sends its "ready" RPC (e.g. an old cached
-    // SW whose controller.sw.js lacked the $controller$init handler), unregister
-    // all SWs and reload once so the fresh SW can install and respond.
-    //
-    // We use localStorage (not sessionStorage) because sessionStorage can be
-    // cleared by some WebViews and private-mode browsers on reload, causing an
-    // infinite reload loop.
-    const retried = localStorage.getItem("jetveil_sw_retry") === "1";
-    let swHangTimeoutId;
-    const swHangTimeout = new Promise((_, reject) => {
-      swHangTimeoutId = setTimeout(async () => {
-        if (!retried) {
-          localStorage.setItem("jetveil_sw_retry", "1");
-          setStep("Step 4/4 — Clearing stale service worker, reloading…");
+    const controllerMethods = controller?.methods;
+    if (controllerMethods && typeof controllerMethods.request === "function") {
+      const originalRequest = controllerMethods.request.bind(controllerMethods);
+      controllerMethods.request = async (payload) => {
+        if (payload && typeof payload.rawClientUrl === "string") {
           try {
-            const regs = await navigator.serviceWorker.getRegistrations();
-            await Promise.all(regs.map((r) => r.unregister()));
-          } catch {}
-          window.location.reload();
-          // Page is unloading — keep the promise pending so no error flashes.
-        } else {
-          localStorage.removeItem("jetveil_sw_retry");
-          reject(new Error(
-            "Timed out waiting for the service worker to respond. " +
-            "Try clearing site data (DevTools → Application → Clear storage)."
-          ));
+            new URL(payload.rawClientUrl);
+          } catch {
+            // #region agent log
+            debugLog("H3", "browser.js:controller:request", "Dropping invalid rawClientUrl", {
+              rawClientUrl: payload.rawClientUrl,
+            });
+            // #endregion
+            payload.rawClientUrl = undefined;
+          }
         }
-      }, 15_000);
+        return originalRequest(payload);
+      };
+    }
+    // #region agent log
+    debugLog("H1", "browser.js:main:controller-wait", "Waiting for controller handshake", {
+      wasmPath: $scramjetController.config.wasmPath,
+      swState: sw?.state ?? null,
     });
+    // #endregion
 
-    await Promise.race([controller.wait(), swHangTimeout]);
-    clearTimeout(swHangTimeoutId);
-    localStorage.removeItem("jetveil_sw_retry");
+    await controller.wait();
   } catch (err) {
+    // #region agent log
+    debugLog("H1", "browser.js:main:controller-error", "Controller handshake failed", {
+      error: err?.message ?? String(err),
+    });
+    // #endregion
     showError(`Scramjet controller init failed: ${err.message}`);
     return;
   }
