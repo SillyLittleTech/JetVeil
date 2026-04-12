@@ -23,10 +23,58 @@ const $input    = document.getElementById("url-input");
 const $home     = document.getElementById("home-btn");
 const $homePg   = document.getElementById("home-page");
 const $frame    = document.getElementById("proxy-frame");
+const SW_RETRY_KEY = "jetveil_sw_retry";
 
 /** Update the visible loading label so users can see which step we are on. */
 function setStep(msg) {
   if ($loadLbl) $loadLbl.textContent = msg;
+}
+
+/** Race a promise against a timeout with a readable error. */
+function withTimeout(promise, ms, label) {
+  let timeoutId;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(
+      () => reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s`)),
+      ms,
+    );
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
+}
+
+/** True when this ServiceWorker instance points at scram-sw.js and is usable. */
+function isUsableScramjetWorker(worker) {
+  if (!worker || typeof worker.scriptURL !== "string") return false;
+  try {
+    const path = new URL(worker.scriptURL, location.href).pathname;
+    return path === "/scram-sw.js" && worker.state !== "redundant";
+  } catch {
+    return false;
+  }
+}
+
+/** Return the best currently available Scramjet service worker. */
+function getScramjetWorker(registration) {
+  return [
+    navigator.serviceWorker.controller,
+    registration?.active,
+    registration?.waiting,
+    registration?.installing,
+  ].find((worker) => isUsableScramjetWorker(worker)) ?? null;
+}
+
+/** One-time SW recovery: unregister stale workers and reload. */
+async function resetServiceWorkerAndReload(stepMessage) {
+  const retried = localStorage.getItem(SW_RETRY_KEY) === "1";
+  if (retried) return false;
+  localStorage.setItem(SW_RETRY_KEY, "1");
+  setStep(stepMessage);
+  try {
+    const regs = await navigator.serviceWorker.getRegistrations();
+    await Promise.all(regs.map((r) => r.unregister()));
+  } catch {}
+  window.location.reload();
+  return true;
 }
 
 /** Show the error screen with a message. */
@@ -84,6 +132,7 @@ async function main() {
     return;
   }
   let sw;
+  let swRegistration;
   try {
     // updateViaCache:"none" ensures the browser always re-fetches controller.sw.js
     // (imported via importScripts) on every SW update check, so a redeployment of
@@ -93,108 +142,66 @@ async function main() {
       updateViaCache: "none",
     });
     setStep("Step 3/4 — Waiting for service worker to activate…");
-    const reg = await navigator.serviceWorker.ready;
-    sw = reg.active;
+    swRegistration = await withTimeout(
+      navigator.serviceWorker.ready,
+      12_000,
+      "Service worker activation",
+    );
+    sw = getScramjetWorker(swRegistration);
+    if (!sw) throw new Error("Service worker is not available for Scramjet handshake.");
+    localStorage.removeItem(SW_RETRY_KEY);
   } catch (err) {
-    showError(`Service worker registration failed: ${err.message}`);
+    if (await resetServiceWorkerAndReload("Step 3/4 — Resetting service worker…")) return;
+    localStorage.removeItem(SW_RETRY_KEY);
+    showError(`Service worker setup failed: ${err.message}`);
     return;
   }
 
-  // ── 5a. Pre-load the WASM binary ────────────────────────────────────────
-  // controller.wait() resolves only after BOTH the SW "ready" RPC AND
-  // loadScramjetWasm() complete.  loadScramjetWasm() fetches the WASM file
-  // independently from inside the Controller constructor, so if that fetch
-  // stalls the whole init hangs even after the SW handshake succeeds.
-  //
-  // Fix: read the full WASM body here, call $scramjet.setWasm() directly, then
-  // redirect config.wasmPath to an in-memory blob URL.  loadScramjetWasm()
-  // will then fetch from the blob (≈instant, no network) and complete
-  // immediately.  This removes WASM download latency from controller.wait().
-  setStep("Step 4/4 — Loading WASM binary…");
-  const wasmPath = $scramjetController.config.wasmPath || "/scramjet/scramjet.wasm";
-  try {
-    const wasmFetchTimeout = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error(`WASM headers timed out (${wasmPath})`)), 8_000)
-    );
-    const wasmResp = await Promise.race([fetch(wasmPath), wasmFetchTimeout]);
-    if (!wasmResp.ok) {
-      showError(`WASM endpoint returned HTTP ${wasmResp.status} (${wasmPath}). Check deployment.`);
-      return;
+  async function createProxyFrame() {
+    const { Controller } = $scramjetController;
+    let lastHandshakeError = null;
+
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      const candidate = getScramjetWorker(swRegistration) ?? sw;
+      const controller = new Controller({ serviceworker: candidate, transport });
+      try {
+        await withTimeout(controller.wait(), 12_000, "Service worker handshake");
+        localStorage.removeItem(SW_RETRY_KEY);
+        return controller.createFrame($frame);
+      } catch (err) {
+        lastHandshakeError = err;
+        if (attempt < 2) {
+          await new Promise((resolve) => setTimeout(resolve, 350));
+        }
+      }
     }
 
-    const wasmBodyTimeout = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error(`WASM body timed out after 20s (${wasmPath})`)), 20_000)
-    );
-    const wasmBuffer = await Promise.race([wasmResp.arrayBuffer(), wasmBodyTimeout]);
-
-    // Pre-set the WASM so scramjet has it immediately.
-    $scramjet.setWasm(wasmBuffer);
-
-    // Point the Controller at a blob URL so its internal loadScramjetWasm()
-    // fetch is instant (no second network round-trip).
-    const wasmBlob = new Blob([wasmBuffer], { type: "application/wasm" });
-    $scramjetController.config.wasmPath = URL.createObjectURL(wasmBlob);
-  } catch (err) {
-    showError(`WASM load failed: ${err.message}`);
-    return;
+    throw lastHandshakeError ?? new Error("Service worker handshake failed.");
   }
 
-  // ── 5b. Instantiate the scramjet Controller ──────────────────────────────
-  // WASM is pre-loaded — the only remaining async work in controller.wait() is
-  // the SW "ready" RPC (SW → main page MessagePort handshake).
+  // ── 5. Instantiate the scramjet Controller ───────────────────────────────
   setStep("Step 4/4 — Handshaking with service worker…");
-  let controller;
   try {
-    const { Controller } = $scramjetController;
-    controller = new Controller({ serviceworker: sw, transport });
-
-    // Auto-healing: if the SW never sends its "ready" RPC (e.g. an old cached
-    // SW whose controller.sw.js lacked the $controller$init handler), unregister
-    // all SWs and reload once so the fresh SW can install and respond.
-    //
-    // We use localStorage (not sessionStorage) because sessionStorage can be
-    // cleared by some WebViews and private-mode browsers on reload, causing an
-    // infinite reload loop.
-    const retried = localStorage.getItem("jetveil_sw_retry") === "1";
-    let swHangTimeoutId;
-    const swHangTimeout = new Promise((_, reject) => {
-      swHangTimeoutId = setTimeout(async () => {
-        if (!retried) {
-          localStorage.setItem("jetveil_sw_retry", "1");
-          setStep("Step 4/4 — Clearing stale service worker, reloading…");
-          try {
-            const regs = await navigator.serviceWorker.getRegistrations();
-            await Promise.all(regs.map((r) => r.unregister()));
-          } catch {}
-          window.location.reload();
-          // Page is unloading — keep the promise pending so no error flashes.
-        } else {
-          localStorage.removeItem("jetveil_sw_retry");
-          reject(new Error(
-            "Timed out waiting for the service worker to respond. " +
-            "Try clearing site data (DevTools → Application → Clear storage)."
-          ));
-        }
-      }, 15_000);
-    });
-
-    await Promise.race([controller.wait(), swHangTimeout]);
-    clearTimeout(swHangTimeoutId);
-    localStorage.removeItem("jetveil_sw_retry");
+    await createProxyFrame();
   } catch (err) {
+    if (await resetServiceWorkerAndReload("Step 4/4 — Resetting service worker…")) return;
+    localStorage.removeItem(SW_RETRY_KEY);
     showError(`Scramjet controller init failed: ${err.message}`);
     return;
   }
 
-  // Create a reusable proxy frame bound to the iframe element
-  const proxyFrame = controller.createFrame($frame);
-
   /** Navigate the proxy iframe to the given URL. */
-  function go(url) {
-    $homePg.hidden = true;
-    $frame.hidden  = false;
-    $input.value   = url;
-    proxyFrame.go(url);
+  async function go(url) {
+    try {
+      const proxyFrame = await createProxyFrame();
+      $homePg.hidden = true;
+      $frame.hidden  = false;
+      $input.value   = url;
+      proxyFrame.go(url);
+    } catch (err) {
+      if (await resetServiceWorkerAndReload("Step 4/4 — Reconnecting service worker…")) return;
+      showError(`Navigation setup failed: ${err.message}`);
+    }
   }
 
   /** Return to the JetVeil home page. */
@@ -214,21 +221,21 @@ async function main() {
   const targetUrl = params.get("url");
   if (targetUrl) {
     const url = normaliseUrl(targetUrl);
-    if (url) { go(url); return; }
+    if (url) { await go(url); return; }
   }
 
   // ── 8. Wire up URL bar ────────────────────────────────────────────────────
-  $form.addEventListener("submit", (e) => {
+  $form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const url = normaliseUrl($input.value);
-    if (url) go(url);
+    if (url) await go(url);
   });
 
   // Quick-access cards
   document.querySelectorAll(".quick-card").forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       const url = btn.dataset.url;
-      if (url) go(url);
+      if (url) await go(url);
     });
   });
 

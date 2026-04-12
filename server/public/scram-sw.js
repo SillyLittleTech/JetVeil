@@ -17,6 +17,10 @@ addEventListener("install", () => self.skipWaiting());
 addEventListener("activate", (e) => e.waitUntil(clients.claim()));
 
 addEventListener("fetch", (e) => {
+  const requestUrl = e.request?.url ?? "";
+  if (requestUrl.startsWith("chrome-extension://") || requestUrl.startsWith("moz-extension://")) {
+    return;
+  }
   if ($scramjetController.shouldRoute(e)) {
     e.respondWith($scramjetController.route(e));
   }
