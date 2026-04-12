@@ -85,7 +85,13 @@ async function main() {
   }
   let sw;
   try {
-    await navigator.serviceWorker.register("/scram-sw.js", { scope: "/" });
+    // updateViaCache:"none" ensures the browser always re-fetches controller.sw.js
+    // (imported via importScripts) on every SW update check, so a redeployment of
+    // scramjet-controller is always picked up without needing scram-sw.js to change.
+    await navigator.serviceWorker.register("/scram-sw.js", {
+      scope: "/",
+      updateViaCache: "none",
+    });
     setStep("Step 3/4 — Waiting for service worker to activate…");
     const reg = await navigator.serviceWorker.ready;
     sw = reg.active;
@@ -109,6 +115,9 @@ async function main() {
       showError(`WASM endpoint returned HTTP ${wasmResp.status} for ${wasmPath}. Check that scramjet.wasm is deployed correctly.`);
       return;
     }
+    // Cancel the response body so the connection is freed before the Controller
+    // also fetches the same WASM file inside loadScramjetWasm().
+    try { wasmResp.body?.cancel(); } catch {}
   } catch (err) {
     showError(`WASM endpoint check failed: ${err.message}`);
     return;
@@ -122,17 +131,38 @@ async function main() {
     const { Controller } = $scramjetController;
     controller = new Controller({ serviceworker: sw, transport });
 
-    // Timeout so a hang surfaces as a readable error instead of an infinite spinner.
-    const timeout = new Promise((_, reject) =>
-      setTimeout(() =>
-        reject(new Error(
-          "Timed out waiting for the service worker to respond (step 4/4 SW handshake). " +
-          "The SW may be stale or unresponsive. " +
-          "Try a hard refresh (Ctrl+Shift+R / Cmd+Shift+R) or clearing site data."
-        )), 15_000)
-    );
+    // Auto-healing timeout: if the SW never sends its "ready" RPC (most likely
+    // because it is a stale build with a cached old controller.sw.js), unregister
+    // all service workers and reload once so the fresh SW can install correctly.
+    // On a second consecutive hang the error is surfaced to the user instead.
+    const retried = sessionStorage.getItem("jetveil_sw_retry") === "1";
+    let swHangTimeoutId;
+    const swHangTimeout = new Promise((_, reject) => {
+      swHangTimeoutId = setTimeout(async () => {
+        if (!retried) {
+          sessionStorage.setItem("jetveil_sw_retry", "1");
+          setStep("Step 4/4 — Clearing stale service worker, reloading…");
+          try {
+            const regs = await navigator.serviceWorker.getRegistrations();
+            await Promise.all(regs.map((r) => r.unregister()));
+          } catch {}
+          window.location.reload();
+          // Execution continues briefly while the page unloads; keep the
+          // promise pending so no error is flashed before the reload fires.
+        } else {
+          sessionStorage.removeItem("jetveil_sw_retry");
+          reject(new Error(
+            "Timed out waiting for the service worker to respond (step 4/4 SW handshake). " +
+            "Try clearing site data in browser settings (DevTools → Application → Clear storage)."
+          ));
+        }
+      }, 15_000);
+    });
 
-    await Promise.race([controller.wait(), timeout]);
+    await Promise.race([controller.wait(), swHangTimeout]);
+    clearTimeout(swHangTimeoutId);
+    // Handshake succeeded — clear any leftover retry flag.
+    sessionStorage.removeItem("jetveil_sw_retry");
   } catch (err) {
     showError(`Scramjet controller init failed: ${err.message}`);
     return;
