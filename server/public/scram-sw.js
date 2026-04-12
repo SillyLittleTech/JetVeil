@@ -1,5 +1,5 @@
 /**
- * JetVeil — Scramjet service worker bootstrap  (v1.0.7)
+ * JetVeil — Scramjet service worker bootstrap  (v1.0.8)
  *
  * Loads the scramjet-controller SW module and wires up the fetch handler.
  * All actual HTTP proxying is delegated back to the Controller instance

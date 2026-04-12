@@ -100,60 +100,79 @@ async function main() {
     return;
   }
 
-  // ── 5a. Pre-test the WASM endpoint ──────────────────────────────────────
-  // controller.wait() waits for BOTH a WASM fetch AND a SW "ready" RPC.
-  // We test the WASM fetch independently first so we can distinguish the two
-  // failure modes without needing DevTools.
-  setStep("Step 4/4 — Checking WASM endpoint…");
+  // ── 5a. Pre-load the WASM binary ────────────────────────────────────────
+  // controller.wait() resolves only after BOTH the SW "ready" RPC AND
+  // loadScramjetWasm() complete.  loadScramjetWasm() fetches the WASM file
+  // independently from inside the Controller constructor, so if that fetch
+  // stalls the whole init hangs even after the SW handshake succeeds.
+  //
+  // Fix: read the full WASM body here, call $scramjet.setWasm() directly, then
+  // redirect config.wasmPath to an in-memory blob URL.  loadScramjetWasm()
+  // will then fetch from the blob (≈instant, no network) and complete
+  // immediately.  This removes WASM download latency from controller.wait().
+  setStep("Step 4/4 — Loading WASM binary…");
   const wasmPath = $scramjetController.config.wasmPath || "/scramjet/scramjet.wasm";
   try {
-    const wasmTimeout = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error(`WASM fetch timed out after 6s (${wasmPath})`)), 6_000)
+    const wasmFetchTimeout = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`WASM headers timed out (${wasmPath})`)), 8_000)
     );
-    const wasmResp = await Promise.race([fetch(wasmPath), wasmTimeout]);
+    const wasmResp = await Promise.race([fetch(wasmPath), wasmFetchTimeout]);
     if (!wasmResp.ok) {
-      showError(`WASM endpoint returned HTTP ${wasmResp.status} for ${wasmPath}. Check that scramjet.wasm is deployed correctly.`);
+      showError(`WASM endpoint returned HTTP ${wasmResp.status} (${wasmPath}). Check deployment.`);
       return;
     }
-    // Cancel the response body so the connection is freed before the Controller
-    // also fetches the same WASM file inside loadScramjetWasm().
-    try { wasmResp.body?.cancel(); } catch {}
+
+    const wasmBodyTimeout = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`WASM body timed out after 20s (${wasmPath})`)), 20_000)
+    );
+    const wasmBuffer = await Promise.race([wasmResp.arrayBuffer(), wasmBodyTimeout]);
+
+    // Pre-set the WASM so scramjet has it immediately.
+    $scramjet.setWasm(wasmBuffer);
+
+    // Point the Controller at a blob URL so its internal loadScramjetWasm()
+    // fetch is instant (no second network round-trip).
+    const wasmBlob = new Blob([wasmBuffer], { type: "application/wasm" });
+    $scramjetController.config.wasmPath = URL.createObjectURL(wasmBlob);
   } catch (err) {
-    showError(`WASM endpoint check failed: ${err.message}`);
+    showError(`WASM load failed: ${err.message}`);
     return;
   }
 
   // ── 5b. Instantiate the scramjet Controller ──────────────────────────────
-  // WASM endpoint is reachable — any remaining hang must be the SW handshake.
+  // WASM is pre-loaded — the only remaining async work in controller.wait() is
+  // the SW "ready" RPC (SW → main page MessagePort handshake).
   setStep("Step 4/4 — Handshaking with service worker…");
   let controller;
   try {
     const { Controller } = $scramjetController;
     controller = new Controller({ serviceworker: sw, transport });
 
-    // Auto-healing timeout: if the SW never sends its "ready" RPC (most likely
-    // because it is a stale build with a cached old controller.sw.js), unregister
-    // all service workers and reload once so the fresh SW can install correctly.
-    // On a second consecutive hang the error is surfaced to the user instead.
-    const retried = sessionStorage.getItem("jetveil_sw_retry") === "1";
+    // Auto-healing: if the SW never sends its "ready" RPC (e.g. an old cached
+    // SW whose controller.sw.js lacked the $controller$init handler), unregister
+    // all SWs and reload once so the fresh SW can install and respond.
+    //
+    // We use localStorage (not sessionStorage) because sessionStorage can be
+    // cleared by some WebViews and private-mode browsers on reload, causing an
+    // infinite reload loop.
+    const retried = localStorage.getItem("jetveil_sw_retry") === "1";
     let swHangTimeoutId;
     const swHangTimeout = new Promise((_, reject) => {
       swHangTimeoutId = setTimeout(async () => {
         if (!retried) {
-          sessionStorage.setItem("jetveil_sw_retry", "1");
+          localStorage.setItem("jetveil_sw_retry", "1");
           setStep("Step 4/4 — Clearing stale service worker, reloading…");
           try {
             const regs = await navigator.serviceWorker.getRegistrations();
             await Promise.all(regs.map((r) => r.unregister()));
           } catch {}
           window.location.reload();
-          // Execution continues briefly while the page unloads; keep the
-          // promise pending so no error is flashed before the reload fires.
+          // Page is unloading — keep the promise pending so no error flashes.
         } else {
-          sessionStorage.removeItem("jetveil_sw_retry");
+          localStorage.removeItem("jetveil_sw_retry");
           reject(new Error(
-            "Timed out waiting for the service worker to respond (step 4/4 SW handshake). " +
-            "Try clearing site data in browser settings (DevTools → Application → Clear storage)."
+            "Timed out waiting for the service worker to respond. " +
+            "Try clearing site data (DevTools → Application → Clear storage)."
           ));
         }
       }, 15_000);
@@ -161,8 +180,7 @@ async function main() {
 
     await Promise.race([controller.wait(), swHangTimeout]);
     clearTimeout(swHangTimeoutId);
-    // Handshake succeeded — clear any leftover retry flag.
-    sessionStorage.removeItem("jetveil_sw_retry");
+    localStorage.removeItem("jetveil_sw_retry");
   } catch (err) {
     showError(`Scramjet controller init failed: ${err.message}`);
     return;
