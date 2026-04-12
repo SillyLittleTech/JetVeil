@@ -94,21 +94,42 @@ async function main() {
     return;
   }
 
-  // ── 5. Instantiate the scramjet Controller ───────────────────────────────
-  setStep("Step 4/4 — Starting Scramjet controller…");
+  // ── 5a. Pre-test the WASM endpoint ──────────────────────────────────────
+  // controller.wait() waits for BOTH a WASM fetch AND a SW "ready" RPC.
+  // We test the WASM fetch independently first so we can distinguish the two
+  // failure modes without needing DevTools.
+  setStep("Step 4/4 — Checking WASM endpoint…");
+  const wasmPath = $scramjetController.config.wasmPath || "/scramjet/scramjet.wasm";
+  try {
+    const wasmTimeout = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`WASM fetch timed out after 6s (${wasmPath})`)), 6_000)
+    );
+    const wasmResp = await Promise.race([fetch(wasmPath), wasmTimeout]);
+    if (!wasmResp.ok) {
+      showError(`WASM endpoint returned HTTP ${wasmResp.status} for ${wasmPath}. Check that scramjet.wasm is deployed correctly.`);
+      return;
+    }
+  } catch (err) {
+    showError(`WASM endpoint check failed: ${err.message}`);
+    return;
+  }
+
+  // ── 5b. Instantiate the scramjet Controller ──────────────────────────────
+  // WASM endpoint is reachable — any remaining hang must be the SW handshake.
+  setStep("Step 4/4 — Handshaking with service worker…");
   let controller;
   try {
     const { Controller } = $scramjetController;
     controller = new Controller({ serviceworker: sw, transport });
 
-    // Timeout so a hang shows a readable error instead of an infinite spinner.
+    // Timeout so a hang surfaces as a readable error instead of an infinite spinner.
     const timeout = new Promise((_, reject) =>
       setTimeout(() =>
         reject(new Error(
-          "Timed out waiting for Scramjet controller (step 4/4). " +
-          "The service worker may not be communicating with the page. " +
-          "Try a hard refresh (Ctrl+Shift+R / Cmd+Shift+R)."
-        )), 20_000)
+          "Timed out waiting for the service worker to respond (step 4/4 SW handshake). " +
+          "The SW may be stale or unresponsive. " +
+          "Try a hard refresh (Ctrl+Shift+R / Cmd+Shift+R) or clearing site data."
+        )), 15_000)
     );
 
     await Promise.race([controller.wait(), timeout]);
