@@ -46,7 +46,13 @@ const bare = createBareServer("/bare/");
  */
 function safeJoin(base, rel) {
   // Strip query string and decode percent-encoding
-  const decoded = decodeURIComponent(rel.split("?")[0]);
+  let decoded;
+  try {
+    decoded = decodeURIComponent(rel.split("?")[0]);
+  } catch {
+    // Malformed percent-encoding — treat as not found rather than crashing
+    return null;
+  }
   // Normalise to remove ".." sequences
   const normalised = normalize(decoded).replace(/^(\.\.(\/|\\|$))+/, "");
   const full = resolve(join(base, normalised));
