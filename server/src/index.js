@@ -14,9 +14,8 @@
 
 import { createServer } from "node:http";
 import { createReadStream, existsSync, statSync } from "node:fs";
-import { join, normalize, resolve, dirname } from "node:path";
+import { join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createRequire } from "node:module";
 
 import { createBareServer } from "@tomphttp/bare-server-node";
 import { lookup as mimeLookup } from "mime-types";
@@ -26,22 +25,20 @@ import { scramjetPath } from "@mercuryworkshop/scramjet/path";
 // ─── Paths ────────────────────────────────────────────────────────────────────
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
-const _require   = createRequire(import.meta.url);
 
 const publicPath    = resolve(join(__dirname, "../public"));
 const scramjetBase  = resolve(scramjetPath);
 
-// Resolve scramjet-controller dist (no path export — resolve via known dist file)
-const controllerBase = resolve(
-  dirname(_require.resolve("@mercuryworkshop/scramjet-controller/dist/controller.sw.js"))
+// Use import.meta.url-relative URLs to locate sibling node_modules directly.
+// This avoids going through Node's package-exports resolution, which would fail
+// for packages that declare an empty or restrictive "exports" field (scramjet-
+// controller has no "exports" key at all; bare-as-module3 only exports ".").
+const controllerBase = fileURLToPath(
+  new URL("../node_modules/@mercuryworkshop/scramjet-controller/dist", import.meta.url)
 );
 
-// Resolve bare-as-module3 dist (exports only "." → lib/index.cjs for Node;
-// walk up to package root then into dist/)
-const bamBase = resolve(
-  dirname(_require.resolve("@mercuryworkshop/bare-as-module3")),
-  "..",
-  "dist"
+const bamBase = fileURLToPath(
+  new URL("../node_modules/@mercuryworkshop/bare-as-module3/dist", import.meta.url)
 );
 
 // ─── Bare server (HTTP proxy transport) ──────────────────────────────────────

@@ -1,6 +1,6 @@
 {
   "name": "jetveil-server",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "JetVeil — Scramjet proxy server. Deploy to Vercel (free tier).",
   "type": "module",
   "engines": {
