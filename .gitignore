@@ -1,0 +1,28 @@
+# Dart / Flutter
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+pubspec.lock
+
+# Platform build artefacts
+linux/
+macos/
+windows/
+
+# IDE / Editor
+.idea/
+.vscode/
+*.iml
+*.suo
+*.user
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test coverage
+coverage/
