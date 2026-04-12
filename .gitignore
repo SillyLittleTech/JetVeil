@@ -26,3 +26,8 @@ Thumbs.db
 
 # Test coverage
 coverage/
+
+# JetVeil — generated static assets are committed to git so Vercel Lambda always
+# has them available. Re-run `npm run build` in server/ after updating npm deps,
+# then commit the updated files.
+

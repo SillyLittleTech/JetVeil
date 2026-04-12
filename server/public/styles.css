@@ -285,6 +285,15 @@ html, body {
 
 .quick-icon { font-size: 1.5rem; }
 
+/* ── Proxy iframe ────────────────────────────────────────────────────────────── */
+
+.proxy-frame {
+  flex: 1;
+  width: 100%;
+  border: none;
+  background: #fff;
+}
+
 /* ── Responsive ─────────────────────────────────────────────────────────────── */
 
 @media (max-width: 600px) {
