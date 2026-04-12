@@ -53,20 +53,6 @@ function isUsableScramjetWorker(worker) {
   }
 }
 
-/** Wait briefly for a controllerchange and return the latest controller. */
-function waitForControllerChange(ms) {
-  return new Promise((resolve) => {
-    const done = () => {
-      navigator.serviceWorker.removeEventListener("controllerchange", onChange);
-      clearTimeout(timeoutId);
-      resolve(navigator.serviceWorker.controller ?? null);
-    };
-    const onChange = () => done();
-    const timeoutId = setTimeout(done, ms);
-    navigator.serviceWorker.addEventListener("controllerchange", onChange);
-  });
-}
-
 /** One-time SW recovery: unregister stale workers and reload. */
 async function resetServiceWorkerAndReload(stepMessage) {
   const retried = localStorage.getItem(SW_RETRY_KEY) === "1";
@@ -145,25 +131,20 @@ async function main() {
       updateViaCache: "none",
     });
     setStep("Step 3/4 — Waiting for service worker to activate…");
-    const reg = await withTimeout(
-      navigator.serviceWorker.ready,
-      12_000,
-      "Service worker activation",
-    );
-
-    sw =
-      [navigator.serviceWorker.controller, reg.active, reg.waiting, reg.installing]
-        .find((worker) => isUsableScramjetWorker(worker)) ?? null;
-
-    if (!sw) {
-      const changed = await waitForControllerChange(4_000);
-      if (isUsableScramjetWorker(changed)) {
-        sw = changed;
+    const reg = await withTimeout(navigator.serviceWorker.ready, 12_000, "Service worker activation");
+    const controller = navigator.serviceWorker.controller;
+    if (isUsableScramjetWorker(controller)) {
+      sw = controller;
+    } else {
+      // ready() can resolve before this tab is controlled on first load.
+      // Reload once so the page is guaranteed to run under the active SW.
+      const activeWorker = [reg.active, reg.waiting, reg.installing]
+        .find((worker) => isUsableScramjetWorker(worker));
+      if (!activeWorker) {
+        throw new Error("Service worker is not available for Scramjet handshake.");
       }
-    }
-
-    if (!sw) {
-      throw new Error("Service worker is not available for Scramjet handshake.");
+      if (await resetServiceWorkerAndReload("Step 3/4 — Attaching service worker…")) return;
+      throw new Error("Service worker is active but not controlling this page.");
     }
     localStorage.removeItem(SW_RETRY_KEY);
   } catch (err) {
@@ -173,54 +154,13 @@ async function main() {
     return;
   }
 
-  // ── 5a. Pre-load the WASM binary ────────────────────────────────────────
-  // controller.wait() resolves only after BOTH the SW "ready" RPC AND
-  // loadScramjetWasm() complete.  loadScramjetWasm() fetches the WASM file
-  // independently from inside the Controller constructor, so if that fetch
-  // stalls the whole init hangs even after the SW handshake succeeds.
-  //
-  // Fix: read the full WASM body here, call $scramjet.setWasm() directly, then
-  // redirect config.wasmPath to an in-memory blob URL.  loadScramjetWasm()
-  // will then fetch from the blob (≈instant, no network) and complete
-  // immediately.  This removes WASM download latency from controller.wait().
-  setStep("Step 4/4 — Loading WASM binary…");
-  const wasmPath = $scramjetController.config.wasmPath || "/scramjet/scramjet.wasm";
-  try {
-    const wasmFetchTimeout = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error(`WASM headers timed out (${wasmPath})`)), 8_000)
-    );
-    const wasmResp = await Promise.race([fetch(wasmPath), wasmFetchTimeout]);
-    if (!wasmResp.ok) {
-      showError(`WASM endpoint returned HTTP ${wasmResp.status} (${wasmPath}). Check deployment.`);
-      return;
-    }
-
-    const wasmBodyTimeout = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error(`WASM body timed out after 20s (${wasmPath})`)), 20_000)
-    );
-    const wasmBuffer = await Promise.race([wasmResp.arrayBuffer(), wasmBodyTimeout]);
-
-    // Pre-set the WASM so scramjet has it immediately.
-    $scramjet.setWasm(wasmBuffer);
-
-    // Point the Controller at a blob URL so its internal loadScramjetWasm()
-    // fetch is instant (no second network round-trip).
-    const wasmBlob = new Blob([wasmBuffer], { type: "application/wasm" });
-    $scramjetController.config.wasmPath = URL.createObjectURL(wasmBlob);
-  } catch (err) {
-    showError(`WASM load failed: ${err.message}`);
-    return;
-  }
-
-  // ── 5b. Instantiate the scramjet Controller ──────────────────────────────
-  // WASM is pre-loaded — the only remaining async work in controller.wait() is
-  // the SW "ready" RPC (SW → main page MessagePort handshake).
+  // ── 5. Instantiate the scramjet Controller ───────────────────────────────
   setStep("Step 4/4 — Handshaking with service worker…");
   let controller;
   try {
     const { Controller } = $scramjetController;
     controller = new Controller({ serviceworker: sw, transport });
-    await withTimeout(controller.wait(), 15_000, "Service worker handshake");
+    await withTimeout(controller.wait(), 20_000, "Service worker handshake");
     localStorage.removeItem(SW_RETRY_KEY);
   } catch (err) {
     if (await resetServiceWorkerAndReload("Step 4/4 — Resetting service worker…")) return;
