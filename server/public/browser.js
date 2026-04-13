@@ -42,19 +42,19 @@ function navigateToUltraviolet(url) {
   window.location.href = target;
 }
 
-async function main() {
-  // ── 1. Configure bare-mux transport ──────────────────────────────────────
-  try {
+let transportReadyPromise;
+function ensureTransport() {
+  if (transportReadyPromise) return transportReadyPromise;
+  transportReadyPromise = (async () => {
     const { BareMuxConnection } = await import("/baremux/index.js");
     const conn = new BareMuxConnection("/baremux/worker.js");
-    // Use the bare-server transport via bare-as-module for serverless-friendly HTTP.
     await conn.setTransport("/baremod/index.mjs", ["/bare/"]);
-  } catch (err) {
-    showError(`Failed to configure transport: ${err.message}`);
-    return;
-  }
+  })();
+  return transportReadyPromise;
+}
 
-  // ── 2. Register Ultraviolet service worker ────────────────────────────────
+async function main() {
+  // ── 1. Register Ultraviolet service worker ────────────────────────────────
   try {
     if (!("serviceWorker" in navigator)) {
       throw new Error("service workers are not supported in this browser");
@@ -67,11 +67,11 @@ async function main() {
     return;
   }
 
-  // ── 3. Show app UI ────────────────────────────────────────────────────────
+  // ── 2. Show app UI ────────────────────────────────────────────────────────
   $loading.hidden = true;
   $app.hidden     = false;
 
-  // ── 4. Handle ?url= from Flutter app ─────────────────────────────────────
+  // ── 3. Handle ?url= from Flutter app ─────────────────────────────────────
   const params    = new URLSearchParams(window.location.search);
   const targetUrl = params.get("url");
   if (targetUrl) {
@@ -79,27 +79,45 @@ async function main() {
     if (url) {
       $input.value    = url;
       $homePg.hidden  = true;
+      try {
+        await ensureTransport();
+      } catch (err) {
+        showError(`Failed to configure transport: ${err.message}`);
+        return;
+      }
       navigateToUltraviolet(url);
       return;
     }
   }
 
-  // ── 5. Wire up URL bar ────────────────────────────────────────────────────
-  $form.addEventListener("submit", (e) => {
+  // ── 4. Wire up URL bar ────────────────────────────────────────────────────
+  $form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const url = normaliseUrl($input.value);
     if (!url) return;
     $homePg.hidden = true;
+    try {
+      await ensureTransport();
+    } catch (err) {
+      showError(`Failed to configure transport: ${err.message}`);
+      return;
+    }
     navigateToUltraviolet(url);
   });
 
   // Quick-access cards
   document.querySelectorAll(".quick-card").forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       const url = btn.dataset.url;
       if (!url) return;
       $input.value   = url;
       $homePg.hidden = true;
+      try {
+        await ensureTransport();
+      } catch (err) {
+        showError(`Failed to configure transport: ${err.message}`);
+        return;
+      }
       navigateToUltraviolet(url);
     });
   });

@@ -1,12 +1,11 @@
 /**
- * JetVeil browser.js — client-side Scramjet initialisation and URL routing.
+ * JetVeil browser.js — desktop ScramJet bootstrap and URL routing.
  *
  * Flow:
  *  1. Configure bare-mux to use the bare-server HTTP transport (/bare/)
- *  2. Initialise ScramjetController and register the service worker
- *  3. If the page was opened with ?url=<target> (from the Flutter app),
- *     navigate to that URL through the proxy automatically
- *  4. Handle the URL bar form submission
+ *  2. Initialise ScramJet controller
+ *  3. If the page was opened with ?url=<target>, navigate immediately
+ *  4. Handle URL bar and quick access cards
  */
 
 const $loading = document.getElementById("loading-screen");
@@ -49,31 +48,15 @@ async function main() {
     return;
   }
 
-  // ── 2. Initialise Scramjet ────────────────────────────────────────────────
-  let scramjet;
+  // ── 2. Initialise ScramJet controller ────────────────────────────────────
+  let controller;
   try {
-    const {
-      ScramjetController,
-      ScramjetBareClient,
-      encodeUrl,
-    } = await import("/scramjet/scramjet.all.js");
-    scramjet = { controller: new ScramjetController(), encodeUrl };
-    await scramjet.controller.init({
-      files: {
-        wasm: "/scramjet/scramjet.wasm.wasm",
-        worker: "/scramjet/scramjet.sync.js",
-        client: "/scramjet/scramjet.bundle.js",
-        shared: "/scramjet/scramjet.all.js",
-      },
-      defaultFlags: {
-        serviceworkers: false,
-        naiiveRewriter: false,
-        captureErrors: true,
-      },
-      siteFlags: {},
+    await import("/scramjet/scramjet.all.js");
+    const { ScramjetController } = globalThis.$scramjetLoadController();
+    controller = new ScramjetController({
+      prefix: "/scramjet/",
     });
-    ScramjetBareClient.data = "/baremod/index.mjs";
-    ScramjetBareClient.bareURL = "/bare/";
+    await controller.init();
   } catch (err) {
     showError(`Scramjet init failed: ${err.message}`);
     return;
@@ -91,12 +74,7 @@ async function main() {
     if (url) {
       $input.value    = url;
       $homePg.hidden  = true;
-      const encoded = scramjet.encodeUrl(url);
-      scramjet.controller.serviceWorker.controller.postMessage({
-        scramjet$type: "baremuxinit",
-        data: "/baremux/worker.js",
-      });
-      location.href = "/scramjet/" + encoded;
+      location.href = controller.encodeUrl(url);
       return;
     }
   }
@@ -107,12 +85,7 @@ async function main() {
     const url = normaliseUrl($input.value);
     if (!url) return;
     $homePg.hidden = true;
-    const encoded = scramjet.encodeUrl(url);
-    scramjet.controller.serviceWorker.controller.postMessage({
-      scramjet$type: "baremuxinit",
-      data: "/baremux/worker.js",
-    });
-    location.href = "/scramjet/" + encoded;
+    location.href = controller.encodeUrl(url);
   });
 
   // Quick-access cards
@@ -122,12 +95,7 @@ async function main() {
       if (!url) return;
       $input.value   = url;
       $homePg.hidden = true;
-      const encoded = scramjet.encodeUrl(url);
-      scramjet.controller.serviceWorker.controller.postMessage({
-        scramjet$type: "baremuxinit",
-        data: "/baremux/worker.js",
-      });
-      location.href = "/scramjet/" + encoded;
+      location.href = controller.encodeUrl(url);
     });
   });
 
