@@ -81,7 +81,26 @@ async function main() {
         sync: "/scram/scramjet.sync.js",
       },
     });
-    await controller.init();
+
+    // Attempt to initialise; if the existing IndexedDB has a stale schema
+    // (e.g. a different Scramjet alpha build stored version 1 with different
+    // object stores) the upgrade callback won't fire and the transaction will
+    // throw NotFoundError.  Delete the database and retry once to recover.
+    try {
+      await controller.init();
+    } catch (err) {
+      if (err.name === "NotFoundError" || (err.message && err.message.includes("object store"))) {
+        await new Promise((res, rej) => {
+          const req = indexedDB.deleteDatabase("$scramjet");
+          req.onsuccess = res;
+          req.onerror   = () => rej(req.error);
+          req.onblocked = res; // proceed even if another tab blocks the delete
+        });
+        await controller.init();
+      } else {
+        throw err;
+      }
+    }
   } catch (err) {
     showError(`Scramjet init failed: ${err.message}`);
     return;
