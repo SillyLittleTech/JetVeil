@@ -219,6 +219,19 @@ html, body {
   overflow-y: auto;
 }
 
+#proxy-container {
+  flex: 1;
+  min-height: 0;
+}
+
+#proxy-frame {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+  background: #fff;
+}
+
 .home-hero {
   display: flex;
   flex-direction: column;

@@ -2,106 +2,137 @@
  * JetVeil browser.js — client-side Scramjet initialisation and URL routing.
  *
  * Flow:
- *  1. Configure bare-mux to use the bare-server HTTP transport (/bare/)
- *  2. Initialise ScramjetController and register the service worker
- *  3. If the page was opened with ?url=<target> (from the Flutter app),
- *     navigate to that URL through the proxy automatically
- *  4. Handle the URL bar form submission
+ *  1. Register SW and force bare-mux to use Bare transport only
+ *  2. Initialise Scramjet controller using current bundle API
+ *  3. Build/manage a Scramjet iframe for proxied browsing
+ *  4. Handle URL bar submissions and Flutter ?url= handoff
  */
 
 const $loading = document.getElementById("loading-screen");
-const $error   = document.getElementById("error-screen");
-const $app     = document.getElementById("app");
-const $form    = document.getElementById("url-form");
-const $input   = document.getElementById("url-input");
-const $home    = document.getElementById("home-btn");
-const $homePg  = document.getElementById("home-page");
+const $error = document.getElementById("error-screen");
+const $app = document.getElementById("app");
+const $form = document.getElementById("url-form");
+const $input = document.getElementById("url-input");
+const $home = document.getElementById("home-btn");
+const $homePg = document.getElementById("home-page");
+const $proxy = document.getElementById("proxy-container");
 
-/** Show the error screen with a message. */
+const swAllowedHostnames = ["localhost", "127.0.0.1"];
+
+const { ScramjetController } = $scramjetLoadController();
+const scramjet = new ScramjetController({
+  prefix: "/scramjet/",
+  files: {
+    wasm: "/scram/scramjet.wasm.wasm",
+    all: "/scram/scramjet.all.js",
+    sync: "/scram/scramjet.sync.js",
+  },
+});
+const connection = new BareMux.BareMuxConnection("/baremux/worker.js");
+
+let proxyFrame = null;
+
 function showError(msg) {
   $loading.hidden = true;
-  $error.hidden   = false;
+  $error.hidden = false;
   document.getElementById("error-message").textContent = msg;
 }
 
-/** Normalise raw user input into a full https:// URL. */
 function normaliseUrl(raw) {
   const trimmed = raw.trim();
   if (!trimmed) return null;
   if (/^https?:\/\//i.test(trimmed)) return trimmed;
-  // Bare domain (e.g. "google.com") — assume https
-  if (/^[a-z0-9-]+(\.[a-z]{2,})/i.test(trimmed)) {
-    return `https://${trimmed}`;
-  }
-  // Treat as a Google search
+  if (/^[a-z0-9-]+(\.[a-z]{2,})/i.test(trimmed)) return `https://${trimmed}`;
   return `https://www.google.com/search?q=${encodeURIComponent(trimmed)}`;
 }
 
+async function registerSW() {
+  if (!navigator.serviceWorker) {
+    throw new Error("Your browser does not support service workers.");
+  }
+  if (
+    location.protocol !== "https:" &&
+    !swAllowedHostnames.includes(location.hostname)
+  ) {
+    throw new Error("Service workers require HTTPS on non-local hosts.");
+  }
+  await navigator.serviceWorker.register("/sw.js");
+}
+
+function ensureProxyFrame() {
+  if (proxyFrame) return proxyFrame;
+  proxyFrame = scramjet.createFrame();
+  proxyFrame.frame.id = "proxy-frame";
+  proxyFrame.frame.setAttribute("title", "JetVeil proxied content");
+  $proxy.appendChild(proxyFrame.frame);
+  return proxyFrame;
+}
+
+function showHome() {
+  $proxy.hidden = true;
+  $homePg.hidden = false;
+}
+
+function showProxy() {
+  $homePg.hidden = true;
+  $proxy.hidden = false;
+}
+
+function navigate(url) {
+  const frame = ensureProxyFrame();
+  showProxy();
+  frame.go(url);
+}
+
+async function setupRuntime() {
+  await registerSW();
+  // Force bare transport only to avoid WebSocket-based Wisp on Vercel.
+  await connection.setTransport("/baremod/index.mjs", [`${location.origin}/bare/`]);
+  await scramjet.init();
+}
+
 async function main() {
-  // ── 1. Configure bare-mux transport ──────────────────────────────────────
   try {
-    const { BareMuxConnection } = await import("/baremux/index.js");
-    const conn = new BareMuxConnection("/baremux/worker.js");
-    // Use the bare HTTP transport — works on Vercel serverless
-    await conn.setTransport("/baremux/implementations/bare.js", ["/bare/"]);
+    await setupRuntime();
   } catch (err) {
-    showError(`Failed to configure transport: ${err.message}`);
+    showError(`Proxy bootstrap failed: ${err.message}`);
     return;
   }
 
-  // ── 2. Initialise Scramjet ────────────────────────────────────────────────
-  let controller;
-  try {
-    const { ScramjetController } = await import("/scram/scramjet.js");
-    controller = new ScramjetController({ prefix: "/scramjet/" });
-    await controller.init("/scram/scramjet.worker.js");
-  } catch (err) {
-    showError(`Scramjet init failed: ${err.message}`);
-    return;
-  }
-
-  // ── 3. Show app UI ────────────────────────────────────────────────────────
   $loading.hidden = true;
-  $app.hidden     = false;
+  $app.hidden = false;
 
-  // ── 4. Handle ?url= from Flutter app ─────────────────────────────────────
-  const params    = new URLSearchParams(window.location.search);
+  const params = new URLSearchParams(window.location.search);
   const targetUrl = params.get("url");
   if (targetUrl) {
     const url = normaliseUrl(targetUrl);
     if (url) {
-      $input.value    = url;
-      $homePg.hidden  = true;
-      controller.go(url);
+      $input.value = url;
+      navigate(url);
       return;
     }
   }
 
-  // ── 5. Wire up URL bar ────────────────────────────────────────────────────
   $form.addEventListener("submit", (e) => {
     e.preventDefault();
     const url = normaliseUrl($input.value);
     if (!url) return;
-    $homePg.hidden = true;
-    controller.go(url);
+    navigate(url);
   });
 
-  // Quick-access cards
   document.querySelectorAll(".quick-card").forEach((btn) => {
     btn.addEventListener("click", () => {
       const url = btn.dataset.url;
       if (!url) return;
-      $input.value   = url;
-      $homePg.hidden = true;
-      controller.go(url);
+      $input.value = url;
+      navigate(url);
     });
   });
 
-  // Home button — navigate back to the JetVeil new-tab page
   $home.addEventListener("click", () => {
     history.pushState(null, "", "/");
-    $input.value   = "";
-    $homePg.hidden = false;
+    $input.value = "";
+    showHome();
   });
 }
 

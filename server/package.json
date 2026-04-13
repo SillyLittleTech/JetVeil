@@ -7,11 +7,14 @@
     "node": ">=18.0.0"
   },
   "scripts": {
+    "prepare:assets": "node ./scripts/sync-proxy-assets.mjs",
+    "postinstall": "npm run prepare:assets",
     "start": "node src/index.js",
     "dev": "node --watch src/index.js"
   },
   "dependencies": {
-    "@mercuryworkshop/bare-mux": "^2.1.7",
+    "@mercuryworkshop/bare-as-module3": "^2.2.5",
+    "@mercuryworkshop/bare-mux": "^2.1.8",
     "@mercuryworkshop/scramjet": "https://github.com/MercuryWorkshop/scramjet/releases/download/latest/mercuryworkshop-scramjet-2.0.0-alpha.tgz",
     "@tomphttp/bare-server-node": "^2.0.3",
     "mime-types": "^2.1.35"

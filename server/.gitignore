@@ -1,2 +1,5 @@
 node_modules/
 .vercel/
+public/scram/
+public/baremux/
+public/baremod/

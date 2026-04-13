@@ -4,7 +4,8 @@
  * Handles:
  *  - /bare/   → bare-server-node HTTP proxy (Vercel-compatible, no WebSockets needed)
  *  - /scram/  → Scramjet static files (SW, runtime JS)
- *  - /baremux/→ bare-mux client worker
+ *  - /baremux/→ bare-mux client worker/runtime files
+ *  - /baremod/→ bare-as-module3 transport files
  *  - /*       → JetVeil public UI (index.html + assets)
  *
  * Deploy to Vercel: one-click, free tier, no extra configuration.
@@ -18,15 +19,13 @@ import { fileURLToPath } from "node:url";
 import { createBareServer } from "@tomphttp/bare-server-node";
 import { lookup as mimeLookup } from "mime-types";
 
-import { scramjetPath } from "@mercuryworkshop/scramjet/path";
-import { baremuxPath } from "@mercuryworkshop/bare-mux/node";
-
 // ─── Paths ────────────────────────────────────────────────────────────────────
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const publicPath = resolve(join(__dirname, "../public"));
-const scramjetBase = resolve(scramjetPath);
-const baremuxBase  = resolve(baremuxPath);
+const scramjetBase = resolve(join(publicPath, "scram"));
+const baremuxBase = resolve(join(publicPath, "baremux"));
+const baremodBase = resolve(join(publicPath, "baremod"));
 
 // ─── Bare server (HTTP proxy transport) ──────────────────────────────────────
 
@@ -121,6 +120,12 @@ export default function handler(req, res) {
   if (url.startsWith("/baremux/")) {
     const rel = url.slice("/baremux/".length);
     return serveFile(res, safeJoin(baremuxBase, rel));
+  }
+
+  // ── bare transport module (bare-as-module3) ───────────────────────────────
+  if (url.startsWith("/baremod/")) {
+    const rel = url.slice("/baremod/".length);
+    return serveFile(res, safeJoin(baremodBase, rel));
   }
 
   // ── Public UI (JetVeil frontend) ───────────────────────────────────────────
