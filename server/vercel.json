@@ -1,9 +1,8 @@
 {
   "version": 2,
-  "buildCommand": "npm install",
   "builds": [
     {
-      "src": "src/index.js",
+      "src": "index.js",
       "use": "@vercel/node",
       "config": {
         "maxLambdaSize": "50mb",
@@ -19,7 +18,7 @@
   "routes": [
     {
       "src": "/(.*)",
-      "dest": "src/index.js"
+      "dest": "index.js"
     }
   ]
 }
