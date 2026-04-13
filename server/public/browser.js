@@ -58,11 +58,19 @@ async function main() {
   }
 
   // ── 2. Configure bare-mux transport ──────────────────────────────────────
-  // BareMux global is set by /baremux/index.js loaded as a <script> tag.
+  // Use setRemoteTransport so the BareTransport instance lives in this window
+  // (always alive) rather than inside the SharedWorker.  setTransport() relies
+  // on the SharedWorker evaluating a dynamic function string + import() — a
+  // fragile chain that can silently fail when the worker is killed or when
+  // CSP/sandbox restrictions are active.  setRemoteTransport() avoids both
+  // by running all HTTP calls in the window context and routing them back via
+  // a MessageChannel, which is the same pattern that makes Ultraviolet reliable
+  // on Vercel.
   try {
-    const conn    = new BareMux.BareMuxConnection("/baremux/worker.js");
-    const bareUrl = location.origin + "/bare/";
-    await conn.setTransport("/transport/index.mjs", [bareUrl]);
+    const { default: BareTransport } = await import("/transport/index.mjs");
+    const transport = new BareTransport(location.origin + "/bare/");
+    const conn = new BareMux.BareMuxConnection("/baremux/worker.js");
+    await conn.setRemoteTransport(transport, "bare-as-module3");
   } catch (err) {
     showError(`Failed to configure transport: ${err.message}`);
     return;
