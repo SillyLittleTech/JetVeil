@@ -2,10 +2,11 @@
  * JetVeil — Scramjet proxy server
  *
  * Handles:
- *  - /bare/   → bare-server-node HTTP proxy (Vercel-compatible, no WebSockets needed)
- *  - /scram/  → Scramjet static files (SW, runtime JS)
- *  - /baremux/→ bare-mux client worker
- *  - /*       → JetVeil public UI (index.html + assets)
+ *  - /bare/      → bare-server-node HTTP proxy (Vercel-compatible, no WebSockets needed)
+ *  - /scram/     → Scramjet static files (SW, runtime JS)
+ *  - /baremux/   → bare-mux client worker
+ *  - /transport/ → bare-as-module3 client (bare protocol transport for bare-mux)
+ *  - /*          → JetVeil public UI (index.html + assets)
  *
  * Deploy to Vercel: one-click, free tier, no extra configuration.
  */
@@ -20,6 +21,7 @@ import { lookup as mimeLookup } from "mime-types";
 
 import { scramjetPath } from "@mercuryworkshop/scramjet/path";
 import { baremuxPath } from "@mercuryworkshop/bare-mux/node";
+import { bareModulePath } from "@mercuryworkshop/bare-as-module3";
 
 // ─── Paths ────────────────────────────────────────────────────────────────────
 
@@ -27,6 +29,7 @@ const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const publicPath = resolve(join(__dirname, "../public"));
 const scramjetBase = resolve(scramjetPath);
 const baremuxBase  = resolve(baremuxPath);
+const transportBase = resolve(bareModulePath);
 
 // ─── Bare server (HTTP proxy transport) ──────────────────────────────────────
 
@@ -123,6 +126,12 @@ export default function handler(req, res) {
     return serveFile(res, safeJoin(baremuxBase, rel));
   }
 
+  // ── bare-as-module3 transport (client-side bare protocol) ─────────────────
+  if (url.startsWith("/transport/")) {
+    const rel = url.slice("/transport/".length);
+    return serveFile(res, safeJoin(transportBase, rel));
+  }
+
   // ── Public UI (JetVeil frontend) ───────────────────────────────────────────
   const relPath = url === "/" ? "index.html" : url;
   const candidate = safeJoin(publicPath, relPath);
@@ -142,9 +151,12 @@ if (!process.env.VERCEL) {
 
   const server = createServer()
     .on("request", (req, res) => handler(req, res))
-    .on("upgrade", (req, socket, _head) => {
-      // Wisp WebSocket support for self-hosted deployments
-      socket.end();
+    .on("upgrade", (req, socket, head) => {
+      if (bare.shouldRoute(req)) {
+        bare.routeUpgrade(req, socket, head);
+      } else {
+        socket.end();
+      }
     });
 
   server.listen(PORT, "0.0.0.0", () => {

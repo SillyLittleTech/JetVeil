@@ -2,20 +2,26 @@
  * JetVeil browser.js — client-side Scramjet initialisation and URL routing.
  *
  * Flow:
- *  1. Configure bare-mux to use the bare-server HTTP transport (/bare/)
- *  2. Initialise ScramjetController and register the service worker
- *  3. If the page was opened with ?url=<target> (from the Flutter app),
+ *  1. Register the Scramjet service worker (/sw.js)
+ *  2. Configure bare-mux to use the bare-server HTTP transport (/bare/)
+ *  3. Initialise ScramjetController (stores config in IndexedDB)
+ *  4. If the page was opened with ?url=<target> (from the Flutter app),
  *     navigate to that URL through the proxy automatically
- *  4. Handle the URL bar form submission
+ *  5. Handle the URL bar form submission
+ *
+ * Prerequisites (loaded as <script> tags before this file):
+ *  - /scram/scramjet.all.js  → sets globalThis.$scramjetLoadController etc.
+ *  - /baremux/index.js       → sets globalThis.BareMux.BareMuxConnection
  */
 
-const $loading = document.getElementById("loading-screen");
-const $error   = document.getElementById("error-screen");
-const $app     = document.getElementById("app");
-const $form    = document.getElementById("url-form");
-const $input   = document.getElementById("url-input");
-const $home    = document.getElementById("home-btn");
-const $homePg  = document.getElementById("home-page");
+const $loading      = document.getElementById("loading-screen");
+const $error        = document.getElementById("error-screen");
+const $app          = document.getElementById("app");
+const $form         = document.getElementById("url-form");
+const $input        = document.getElementById("url-input");
+const $home         = document.getElementById("home-btn");
+const $homePg       = document.getElementById("home-page");
+const $browserFrame = document.getElementById("browser-frame");
 
 /** Show the error screen with a message. */
 function showError(msg) {
@@ -38,52 +44,81 @@ function normaliseUrl(raw) {
 }
 
 async function main() {
-  // ── 1. Configure bare-mux transport ──────────────────────────────────────
+  // ── 1. Register the Scramjet service worker ───────────────────────────────
+  if (!navigator.serviceWorker) {
+    showError("Service workers are not supported in this browser. " +
+              "Try a modern browser over HTTPS.");
+    return;
+  }
   try {
-    const { BareMuxConnection } = await import("/baremux/index.js");
-    const conn = new BareMuxConnection("/baremux/worker.js");
-    // Use the bare HTTP transport — works on Vercel serverless
-    await conn.setTransport("/baremux/implementations/bare.js", ["/bare/"]);
+    await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+  } catch (err) {
+    showError(`Failed to register service worker: ${err.message}`);
+    return;
+  }
+
+  // ── 2. Configure bare-mux transport ──────────────────────────────────────
+  // BareMux global is set by /baremux/index.js loaded as a <script> tag.
+  try {
+    const conn    = new BareMux.BareMuxConnection("/baremux/worker.js");
+    const bareUrl = location.origin + "/bare/";
+    await conn.setTransport("/transport/index.mjs", [bareUrl]);
   } catch (err) {
     showError(`Failed to configure transport: ${err.message}`);
     return;
   }
 
-  // ── 2. Initialise Scramjet ────────────────────────────────────────────────
+  // ── 3. Initialise Scramjet ────────────────────────────────────────────────
+  // $scramjetLoadController is set by /scram/scramjet.all.js <script> tag.
   let controller;
   try {
-    const { ScramjetController } = await import("/scram/scramjet.js");
-    controller = new ScramjetController({ prefix: "/scramjet/" });
-    await controller.init("/scram/scramjet.worker.js");
+    const { ScramjetController } = $scramjetLoadController();
+    controller = new ScramjetController({
+      prefix: "/scramjet/",
+      files: {
+        wasm: "/scram/scramjet.wasm.wasm",
+        all:  "/scram/scramjet.all.js",
+        sync: "/scram/scramjet.sync.js",
+      },
+    });
+    await controller.init();
   } catch (err) {
     showError(`Scramjet init failed: ${err.message}`);
     return;
   }
 
-  // ── 3. Show app UI ────────────────────────────────────────────────────────
+  // Attach a ScramjetFrame to the hidden iframe element.
+  const frame = controller.createFrame($browserFrame);
+
+  /** Navigate the proxy frame to a URL and show the browser viewport. */
+  function navigate(url) {
+    $input.value    = url;
+    $homePg.hidden  = true;
+    $browserFrame.hidden = false;
+    frame.go(url);
+  }
+
+  // ── 4. Show app UI ────────────────────────────────────────────────────────
   $loading.hidden = true;
   $app.hidden     = false;
 
-  // ── 4. Handle ?url= from Flutter app ─────────────────────────────────────
+  // ── 5. Handle ?url= from Flutter app ─────────────────────────────────────
   const params    = new URLSearchParams(window.location.search);
   const targetUrl = params.get("url");
   if (targetUrl) {
     const url = normaliseUrl(targetUrl);
     if (url) {
-      $input.value    = url;
-      $homePg.hidden  = true;
-      controller.go(url);
+      navigate(url);
       return;
     }
   }
 
-  // ── 5. Wire up URL bar ────────────────────────────────────────────────────
+  // ── 6. Wire up URL bar ────────────────────────────────────────────────────
   $form.addEventListener("submit", (e) => {
     e.preventDefault();
     const url = normaliseUrl($input.value);
     if (!url) return;
-    $homePg.hidden = true;
-    controller.go(url);
+    navigate(url);
   });
 
   // Quick-access cards
@@ -91,17 +126,16 @@ async function main() {
     btn.addEventListener("click", () => {
       const url = btn.dataset.url;
       if (!url) return;
-      $input.value   = url;
-      $homePg.hidden = true;
-      controller.go(url);
+      navigate(url);
     });
   });
 
   // Home button — navigate back to the JetVeil new-tab page
   $home.addEventListener("click", () => {
     history.pushState(null, "", "/");
-    $input.value   = "";
-    $homePg.hidden = false;
+    $input.value         = "";
+    $browserFrame.hidden = true;
+    $homePg.hidden       = false;
   });
 }
 

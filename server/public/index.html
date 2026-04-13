@@ -13,6 +13,10 @@
   <title>JetVeil</title>
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="stylesheet" href="styles.css">
+
+  <!-- Scramjet runtime and bare-mux must load before browser.js -->
+  <script src="/scram/scramjet.all.js"></script>
+  <script src="/baremux/index.js"></script>
 </head>
 <body>
   <!-- ── Loading state ─────────────────────────────────────────────────── -->
@@ -93,6 +97,9 @@
       </div>
     </header>
 
+    <!-- Browser viewport — hidden until a URL is navigated to -->
+    <iframe id="browser-frame" hidden title="Proxy browser"></iframe>
+
     <!-- Home / new-tab page (visible when no URL is loaded) -->
     <main id="home-page">
       <div class="home-hero">
@@ -140,6 +147,6 @@
     </main>
   </div>
 
-  <script type="module" src="browser.js"></script>
+  <script src="browser.js" defer></script>
 </body>
 </html>
