@@ -26,3 +26,11 @@ Thumbs.db
 
 # Test coverage
 coverage/
+
+# Node / Electron
+node_modules/
+desktop/node_modules/
+desktop/dist/
+
+# Runtime data
+*.log

@@ -13,7 +13,7 @@
 import { createServer } from "node:http";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { join, normalize, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { createBareServer } from "@tomphttp/bare-server-node";
 import { lookup as mimeLookup } from "mime-types";
@@ -134,24 +134,83 @@ export default function handler(req, res) {
   return serveFile(res, join(publicPath, "index.html"));
 }
 
+/**
+ * Creates a Node HTTP server that serves JetVeil + Scramjet endpoints.
+ *
+ * The returned server is not listening yet.
+ */
+export function createJetVeilServer() {
+  return createServer()
+    .on("request", (req, res) => handler(req, res))
+    .on("upgrade", (req, socket, _head) => {
+      // Wisp WebSocket support for self-hosted deployments.
+      socket.end();
+    });
+}
+
+/**
+ * Starts the JetVeil server and resolves with bound runtime details.
+ *
+ * @param {{port?: number, host?: string}} [options]
+ */
+export function startJetVeilServer(options = {}) {
+  const {
+    port = parseInt(process.env.PORT ?? "8080", 10),
+    host = process.env.HOST ?? "127.0.0.1",
+  } = options;
+
+  const server = createJetVeilServer();
+
+  return new Promise((resolveStart, rejectStart) => {
+    server.once("error", (err) => rejectStart(err));
+    server.listen(port, host, () => {
+      const address = server.address();
+      const boundPort =
+        address && typeof address === "object" ? address.port : port;
+      const url = `http://${host}:${boundPort}`;
+      resolveStart({
+        server,
+        host,
+        port: boundPort,
+        url,
+        close: () =>
+          new Promise((resolveClose, rejectClose) => {
+            server.close((err) => {
+              if (err) rejectClose(err);
+              else resolveClose();
+            });
+          }),
+      });
+    });
+  });
+}
+
 // ─── Standalone Node.js server (local dev / Render / Docker) ─────────────────
 // Vercel imports `handler` directly; this block is skipped in that environment.
 
-if (!process.env.VERCEL) {
-  const PORT = parseInt(process.env.PORT ?? "8080", 10);
+const isDirectRun =
+  !!process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 
-  const server = createServer()
-    .on("request", (req, res) => handler(req, res))
-    .on("upgrade", (req, socket, _head) => {
-      // Wisp WebSocket support for self-hosted deployments
-      socket.end();
+if (!process.env.VERCEL && isDirectRun) {
+  startJetVeilServer({
+    port: parseInt(process.env.PORT ?? "8080", 10),
+    host: "0.0.0.0",
+  })
+    .then(({ url, server }) => {
+      console.log(`JetVeil server running on ${url}`);
+
+      process.on("SIGINT", () => {
+        server.close();
+        process.exit(0);
+      });
+      process.on("SIGTERM", () => {
+        server.close();
+        process.exit(0);
+      });
+    })
+    .catch((err) => {
+      console.error("Failed to start JetVeil server:", err);
+      process.exit(1);
     });
-
-  server.listen(PORT, "0.0.0.0", () => {
-    console.log(`JetVeil server running on http://localhost:${PORT}`);
-  });
-
-  process.on("SIGINT",  () => { server.close(); process.exit(0); });
-  process.on("SIGTERM", () => { server.close(); process.exit(0); });
 }
 

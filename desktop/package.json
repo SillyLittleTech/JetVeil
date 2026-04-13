@@ -1,0 +1,57 @@
+{
+  "name": "jetveil-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "author": "SillyLittleTech",
+  "description": "JetVeil desktop wrapper that hosts a local ScramJet proxy server.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SillyLittleTech/JetVeil.git"
+  },
+  "type": "module",
+  "main": "main.js",
+  "scripts": {
+    "dev": "electron .",
+    "dev:headless": "xvfb-run -a electron . --no-sandbox",
+    "start": "electron .",
+    "pack": "electron-builder --dir --publish never",
+    "build": "electron-builder --publish never",
+    "build:linux": "electron-builder --linux AppImage deb --publish never",
+    "build:windows": "electron-builder --windows nsis portable --publish never",
+    "build:mac": "electron-builder --mac zip --publish never",
+    "build:mac:dmg": "electron-builder --mac dmg --publish never"
+  },
+  "devDependencies": {
+    "electron": "^31.7.7",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "tech.sillylittle.jetveil",
+    "productName": "JetVeil",
+    "publish": {
+      "provider": "github",
+      "owner": "SillyLittleTech",
+      "repo": "JetVeil"
+    },
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../server",
+        "to": "server",
+        "filter": [
+          "src/**/*",
+          "public/**/*",
+          "package.json",
+          "node_modules/**/*"
+        ]
+      }
+    ],
+    "asar": true
+  }
+}
