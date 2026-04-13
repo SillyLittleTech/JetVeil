@@ -14,13 +14,36 @@
 import { createServer } from "node:http";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { join, normalize, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { createBareServer } from "@tomphttp/bare-server-node";
 import { lookup as mimeLookup } from "mime-types";
 
 // ─── Paths ────────────────────────────────────────────────────────────────────
 
-const publicPath = resolve(join(process.cwd(), "public"));
+// Robustly locate the public directory across all deployment modes:
+//  • @vercel/node with nft (structure-preserving): __dirname = /var/task/src/
+//      → ../public resolves to /var/task/public  ✓
+//  • @vercel/node with ncc (single-file bundle):   __dirname = /var/task/
+//      → public   resolves to /var/task/public  ✓
+//  • process.cwd() fallback for any other host
+const __dirname = fileURLToPath(new URL(".", import.meta.url));
+function resolvePublicPath() {
+  const candidates = [
+    resolve(join(__dirname, "../public")),
+    resolve(join(__dirname, "public")),
+    resolve(join(process.cwd(), "public")),
+  ];
+  for (const c of candidates) {
+    if (existsSync(c)) {
+      console.log("[JetVeil] publicPath (resolved):", c);
+      return c;
+    }
+  }
+  console.warn("[JetVeil] publicPath not found; using fallback:", candidates[0]);
+  return candidates[0];
+}
+const publicPath = resolvePublicPath();
 const scramjetBase = resolve(join(publicPath, "scram"));
 const baremuxBase = resolve(join(publicPath, "baremux"));
 const baremodBase = resolve(join(publicPath, "baremod"));
