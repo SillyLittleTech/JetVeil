@@ -57,19 +57,45 @@ async function main() {
     return;
   }
 
-  // ── 2. Configure bare-mux transport ──────────────────────────────────────
-  // Use setRemoteTransport so the BareTransport instance lives in this window
-  // (always alive) rather than inside the SharedWorker.  setTransport() relies
-  // on the SharedWorker evaluating a dynamic function string + import() — a
-  // fragile chain that can silently fail when the worker is killed or when
-  // CSP/sandbox restrictions are active.  setRemoteTransport() avoids both
-  // by running all HTTP calls in the window context and routing them back via
-  // a MessageChannel, which is the same pattern that makes Ultraviolet reliable
-  // on Vercel.
+  // ── 2. Configure bare-mux transport (Bare HTTP only — no Wisp/WebSocket) ──
+  //
+  // Scramjet uses bare-mux internally and will use whatever transport was last
+  // stored in the SharedWorker.  Other Scramjet deployments (e.g. the official
+  // scramjet-app) default to libcurl-transport or epoxy-transport, both of
+  // which tunnel through Wisp — a WebSocket-based protocol.  Vercel serverless
+  // functions terminate WebSocket upgrade requests immediately, so any Wisp
+  // transport is dead on arrival here.
+  //
+  // We MUST explicitly force bare-as-module3, which proxies requests via plain
+  // HTTP POST to /bare/ — a standard serverless-compatible endpoint.
+  //
+  // We use setRemoteTransport() (not setTransport()) so the BareTransport
+  // instance lives in this window rather than inside the SharedWorker.
+  // setTransport() requires the SharedWorker to evaluate a dynamic function
+  // string and run import() — a chain that can silently fail if the worker is
+  // killed or restarted.  setRemoteTransport() is simpler: the window handles
+  // every HTTP request directly via a MessageChannel port, matching how
+  // Ultraviolet reliably operates on Vercel.
   try {
+    const conn = new BareMux.BareMuxConnection("/baremux/worker.js");
+
+    // Warn in the console if a previous session left a non-bare transport
+    // (e.g. libcurl/Wisp) configured in the SharedWorker.  We always override
+    // it unconditionally below — this check is purely diagnostic.
+    try {
+      const prev = await conn.getTransport();
+      if (prev && typeof prev === "string" && !prev.includes("bare-as-module3")) {
+        console.warn(
+          `[JetVeil] Replacing previous transport "${prev}" with bare HTTP transport.` +
+          " Wisp/WebSocket transports do not work on Vercel serverless."
+        );
+      }
+    } catch { /* SharedWorker may not have started yet — safe to ignore */ }
+
+    // Import the transport module here in the window (not in the SharedWorker)
+    // so there is no risk of the eval/import chain inside the worker failing.
     const { default: BareTransport } = await import("/transport/index.mjs");
     const transport = new BareTransport(location.origin + "/bare/");
-    const conn = new BareMux.BareMuxConnection("/baremux/worker.js");
     await conn.setRemoteTransport(transport, "bare-as-module3");
   } catch (err) {
     showError(`Failed to configure transport: ${err.message}`);
@@ -97,7 +123,8 @@ async function main() {
     try {
       await controller.init();
     } catch (err) {
-      if (err.name === "NotFoundError" || (err.message && err.message.includes("object store"))) {
+      if (err.name === "NotFoundError" || err.name === "InvalidStateError" ||
+          (err.message && err.message.toLowerCase().includes("object store"))) {
         await new Promise((res, rej) => {
           const req = indexedDB.deleteDatabase("$scramjet");
           req.onsuccess = res;

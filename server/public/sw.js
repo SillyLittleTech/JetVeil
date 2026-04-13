@@ -29,7 +29,12 @@ async function handleRequest(event) {
   // the page can finish loading and controller.init() can recreate the DB.
   try {
     await scramjet.loadConfig();
-  } catch {
+  } catch (err) {
+    // IDB not yet initialised or has a stale schema — fall back to native
+    // fetch so page assets load normally.  controller.init() will recreate
+    // the database; once the config is stored, subsequent requests will be
+    // routed through Scramjet correctly.
+    console.warn("[JetVeil SW] loadConfig failed, falling back to native fetch:", err);
     return fetch(event.request);
   }
 
