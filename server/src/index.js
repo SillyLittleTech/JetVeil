@@ -1,13 +1,11 @@
 /**
- * JetVeil — Scramjet proxy server
+ * JetVeil — Ultraviolet web server (Vercel-optimized)
  *
  * Handles:
- *  - /bare/   → bare-server-node HTTP proxy (Vercel-compatible, no WebSockets needed)
- *  - /scram/  → Scramjet static files (SW, runtime JS)
- *  - /baremux/→ bare-mux client worker
- *  - /*       → JetVeil public UI (index.html + assets)
- *
- * Deploy to Vercel: one-click, free tier, no extra configuration.
+ *  - /bare/    → bare-server-node HTTP proxy transport
+ *  - /uv/      → Ultraviolet static vendor files
+ *  - /baremux/ → bare-mux client worker files
+ *  - /*        → JetVeil public UI (index.html + assets)
  */
 
 import { createServer } from "node:http";
@@ -18,15 +16,17 @@ import { fileURLToPath } from "node:url";
 import { createBareServer } from "@tomphttp/bare-server-node";
 import { lookup as mimeLookup } from "mime-types";
 
-import { scramjetPath } from "@mercuryworkshop/scramjet/path";
+import { uvPath } from "@titaniumnetwork-dev/ultraviolet";
+import { bareModulePath } from "@mercuryworkshop/bare-as-module3";
 import { baremuxPath } from "@mercuryworkshop/bare-mux/node";
 
 // ─── Paths ────────────────────────────────────────────────────────────────────
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const publicPath = resolve(join(__dirname, "../public"));
-const scramjetBase = resolve(scramjetPath);
-const baremuxBase  = resolve(baremuxPath);
+const ultravioletBase = resolve(uvPath);
+const baremuxBase = resolve(baremuxPath);
+const baremodBase = resolve(bareModulePath);
 
 // ─── Bare server (HTTP proxy transport) ──────────────────────────────────────
 
@@ -99,7 +99,7 @@ function serveFile(res, filePath) {
  * @param {import("node:http").ServerResponse} res
  */
 export default function handler(req, res) {
-  // Security headers required for Scramjet's SharedArrayBuffer usage
+  // Security headers required for UV SharedArrayBuffer usage.
   res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
   res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
 
@@ -111,16 +111,30 @@ export default function handler(req, res) {
     return bare.routeRequest(req, res);
   }
 
-  // ── Scramjet static files ──────────────────────────────────────────────────
-  if (url.startsWith("/scram/")) {
-    const rel = url.slice("/scram/".length);
-    return serveFile(res, safeJoin(scramjetBase, rel));
+  // ── Ultraviolet static files ───────────────────────────────────────────────
+  if (url.startsWith("/uv/")) {
+    const rel = url.slice("/uv/".length);
+    const publicUvFile = safeJoin(join(publicPath, "uv"), rel);
+    if (
+      publicUvFile &&
+      existsSync(publicUvFile) &&
+      statSync(publicUvFile).isFile()
+    ) {
+      return serveFile(res, publicUvFile);
+    }
+    return serveFile(res, safeJoin(ultravioletBase, rel));
   }
 
   // ── bare-mux client worker ─────────────────────────────────────────────────
   if (url.startsWith("/baremux/")) {
     const rel = url.slice("/baremux/".length);
     return serveFile(res, safeJoin(baremuxBase, rel));
+  }
+
+  // ── bare transport module for bare-mux ────────────────────────────────────
+  if (url.startsWith("/baremod/")) {
+    const rel = url.slice("/baremod/".length);
+    return serveFile(res, safeJoin(baremodBase, rel));
   }
 
   // ── Public UI (JetVeil frontend) ───────────────────────────────────────────
@@ -143,7 +157,7 @@ if (!process.env.VERCEL) {
   const server = createServer()
     .on("request", (req, res) => handler(req, res))
     .on("upgrade", (req, socket, _head) => {
-      // Wisp WebSocket support for self-hosted deployments
+      // Bare HTTP transport is used for this deployment profile.
       socket.end();
     });
 

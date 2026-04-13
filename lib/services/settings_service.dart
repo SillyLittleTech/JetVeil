@@ -14,7 +14,7 @@ class SettingsService extends ChangeNotifier {
 
   late SharedPreferences _prefs;
 
-  ProxySettings _proxy = ProxySettings.empty;
+  ProxySettings _proxy = ProxySettings.defaultForCurrentPlatform();
   ThemeMode _themeMode = ThemeMode.dark;
   Color _accentColor = const Color(0xFF00E5FF);
 
@@ -35,12 +35,14 @@ class SettingsService extends ChangeNotifier {
     final raw = _prefs.getString(_keyProxy);
     if (raw != null) {
       try {
-        _proxy = ProxySettings.fromJson(
-            json.decode(raw) as Map<String, dynamic>);
+        final decoded = json.decode(raw) as Map<String, dynamic>;
+        _proxy = ProxySettings.fromJson(decoded);
       } catch (_) {
-        _proxy = ProxySettings.empty;
+        _proxy = ProxySettings.defaultForCurrentPlatform();
       }
+      return;
     }
+    _proxy = ProxySettings.defaultForCurrentPlatform();
   }
 
   Future<void> saveProxy(ProxySettings settings) async {

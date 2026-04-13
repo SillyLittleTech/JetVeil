@@ -1,11 +1,12 @@
 /**
- * JetVeil browser.js — Ultraviolet client bootstrap and URL routing.
+ * JetVeil browser.js — client-side Scramjet initialisation and URL routing.
  *
  * Flow:
- *  1. Configure bare-mux to use the bare HTTP transport (/bare/)
- *  2. Register the Ultraviolet service worker under /uv/service/
- *  3. If opened with ?url=<target>, navigate there immediately
- *  4. Handle URL bar and quick access cards
+ *  1. Configure bare-mux to use the bare-server HTTP transport (/bare/)
+ *  2. Initialise ScramjetController and register the service worker
+ *  3. If the page was opened with ?url=<target> (from the Flutter app),
+ *     navigate to that URL through the proxy automatically
+ *  4. Handle the URL bar form submission
  */
 
 const $loading = document.getElementById("loading-screen");
@@ -36,34 +37,45 @@ function normaliseUrl(raw) {
   return `https://www.google.com/search?q=${encodeURIComponent(trimmed)}`;
 }
 
-function navigateToUltraviolet(url) {
-  if (!url) return;
-  const target = __uv$config.prefix + __uv$config.encodeUrl(url);
-  window.location.href = target;
-}
-
 async function main() {
   // ── 1. Configure bare-mux transport ──────────────────────────────────────
   try {
     const { BareMuxConnection } = await import("/baremux/index.js");
     const conn = new BareMuxConnection("/baremux/worker.js");
-    // Use the bare-server transport via bare-as-module for serverless-friendly HTTP.
+    // Use bare-server transport via bare-as-module.
     await conn.setTransport("/baremod/index.mjs", ["/bare/"]);
   } catch (err) {
     showError(`Failed to configure transport: ${err.message}`);
     return;
   }
 
-  // ── 2. Register Ultraviolet service worker ────────────────────────────────
+  // ── 2. Initialise Scramjet ────────────────────────────────────────────────
+  let scramjet;
   try {
-    if (!("serviceWorker" in navigator)) {
-      throw new Error("service workers are not supported in this browser");
-    }
-    await navigator.serviceWorker.register("/uv/sw.js", {
-      scope: __uv$config.prefix,
+    const {
+      ScramjetController,
+      ScramjetBareClient,
+      encodeUrl,
+    } = await import("/scramjet/scramjet.all.js");
+    scramjet = { controller: new ScramjetController(), encodeUrl };
+    await scramjet.controller.init({
+      files: {
+        wasm: "/scramjet/scramjet.wasm.wasm",
+        worker: "/scramjet/scramjet.sync.js",
+        client: "/scramjet/scramjet.bundle.js",
+        shared: "/scramjet/scramjet.all.js",
+      },
+      defaultFlags: {
+        serviceworkers: false,
+        naiiveRewriter: false,
+        captureErrors: true,
+      },
+      siteFlags: {},
     });
+    ScramjetBareClient.data = "/baremod/index.mjs";
+    ScramjetBareClient.bareURL = "/bare/";
   } catch (err) {
-    showError(`Ultraviolet init failed: ${err.message}`);
+    showError(`Scramjet init failed: ${err.message}`);
     return;
   }
 
@@ -79,7 +91,12 @@ async function main() {
     if (url) {
       $input.value    = url;
       $homePg.hidden  = true;
-      navigateToUltraviolet(url);
+      const encoded = scramjet.encodeUrl(url);
+      scramjet.controller.serviceWorker.controller.postMessage({
+        scramjet$type: "baremuxinit",
+        data: "/baremux/worker.js",
+      });
+      location.href = "/scramjet/" + encoded;
       return;
     }
   }
@@ -90,7 +107,12 @@ async function main() {
     const url = normaliseUrl($input.value);
     if (!url) return;
     $homePg.hidden = true;
-    navigateToUltraviolet(url);
+    const encoded = scramjet.encodeUrl(url);
+    scramjet.controller.serviceWorker.controller.postMessage({
+      scramjet$type: "baremuxinit",
+      data: "/baremux/worker.js",
+    });
+    location.href = "/scramjet/" + encoded;
   });
 
   // Quick-access cards
@@ -100,7 +122,12 @@ async function main() {
       if (!url) return;
       $input.value   = url;
       $homePg.hidden = true;
-      navigateToUltraviolet(url);
+      const encoded = scramjet.encodeUrl(url);
+      scramjet.controller.serviceWorker.controller.postMessage({
+        scramjet$type: "baremuxinit",
+        data: "/baremux/worker.js",
+      });
+      location.href = "/scramjet/" + encoded;
     });
   });
 

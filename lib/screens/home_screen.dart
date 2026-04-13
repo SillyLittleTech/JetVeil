@@ -7,7 +7,6 @@ import '../services/bookmark_service.dart';
 import '../services/settings_service.dart';
 import '../widgets/setup_card.dart';
 import '../widgets/url_bar.dart';
-import '../widgets/bookmark_tile.dart';
 
 /// The main screen of JetVeil.
 ///
@@ -62,6 +61,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final theme = Theme.of(context);
     final settings = context.watch<SettingsService>();
     final bookmarks = context.watch<BookmarkService>();
+    final effectiveServer = settings.proxy.effectiveServerUrl;
 
     return Scaffold(
       appBar: AppBar(
@@ -133,6 +133,16 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SizedBox(height: 40),
                   _Footer(theme: theme),
+                  if (effectiveServer.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      'Active backend: $effectiveServer',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant.withAlpha(150),
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -363,7 +373,7 @@ class _Footer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Text(
-      'JetVeil — powered by Scramjet',
+      'JetVeil — Ultraviolet on web, ScramJet on desktop',
       style: theme.textTheme.bodySmall?.copyWith(
         color: theme.colorScheme.onSurfaceVariant.withAlpha(120),
       ),

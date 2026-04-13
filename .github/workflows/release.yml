@@ -1,14 +1,13 @@
 name: Build & Release
 
-# Triggers only on changes to the Flutter app source.
-# Web deployment is handled automatically by Cloudflare Pages (configured in
-# the CF dashboard — no CI step needed here).
+# Triggers on Flutter app source and local desktop backend changes.
 on:
   push:
     branches:
       - main
     paths:
       - 'lib/**'
+      - 'desktop/scramjet-server/**'
       - 'web/**'
       - 'pubspec.yaml'
       - 'pubspec.lock'
@@ -246,7 +245,8 @@ jobs:
             | 🍎 macOS | `jetveil-macos.zip` |
 
             ### ⚙️ Server
-            Deploy the Scramjet backend to Vercel with the one-click button in **Settings**.
+            Deploy the Ultraviolet web backend from `server/` to Vercel.
+            Desktop builds run the bundled local ScramJet backend from `desktop/scramjet-server`.
           files: |
             artifacts/linux-build/jetveil-linux-x64.tar.gz
             artifacts/windows-build/jetveil-windows-x64.zip

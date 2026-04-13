@@ -17,7 +17,8 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   final _formKey = GlobalKey<FormState>();
   late TextEditingController _serverController;
-  late TextEditingController _prefixController;
+  late TextEditingController _desktopServerController;
+  bool _preferLocalDesktopServer = true;
   bool _openInNewTab = false;
   bool _saveHistory = true;
 
@@ -26,8 +27,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.initState();
     final p = context.read<SettingsService>().proxy;
     _serverController = TextEditingController(text: p.serverUrl);
-    _prefixController =
-        TextEditingController(text: p.scramjetPrefix);
+    _desktopServerController =
+        TextEditingController(text: p.desktopLocalServerUrl);
+    _preferLocalDesktopServer = p.preferLocalDesktopServer;
     _openInNewTab = p.openInNewTab;
     _saveHistory = p.saveHistory;
   }
@@ -35,7 +37,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void dispose() {
     _serverController.dispose();
-    _prefixController.dispose();
+    _desktopServerController.dispose();
     super.dispose();
   }
 
@@ -45,7 +47,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await settings.saveProxy(
       ProxySettings(
         serverUrl: _serverController.text.trim(),
-        scramjetPrefix: _prefixController.text.trim(),
+        desktopLocalServerUrl: _desktopServerController.text.trim(),
+        preferLocalDesktopServer: _preferLocalDesktopServer,
         openInNewTab: _openInNewTab,
         saveHistory: _saveHistory,
       ),
@@ -92,18 +95,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             TextFormField(
                               controller: _serverController,
                               decoration: const InputDecoration(
-                                labelText: 'Server URL',
+                                labelText: 'Web Server URL (Ultraviolet)',
                                 hintText: 'https://my-jetveil.vercel.app',
                                 prefixIcon:
                                     Icon(Icons.public_rounded),
+                                helperText:
+                                    'Used by JetVeil web and as desktop fallback',
                               ),
                               keyboardType: TextInputType.url,
                               textInputAction: TextInputAction.next,
                               validator: (v) {
-                                if (v == null || v.trim().isEmpty) {
-                                  return 'Server URL is required';
+                                final trimmed = v?.trim() ?? '';
+                                if (trimmed.isEmpty) {
+                                  return null;
                                 }
-                                final uri = Uri.tryParse(v.trim());
+                                final uri = Uri.tryParse(trimmed);
                                 if (uri == null ||
                                     !uri.hasScheme ||
                                     (!uri.scheme.startsWith('http'))) {
@@ -114,22 +120,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             ),
                             const SizedBox(height: 16),
                             TextFormField(
-                              controller: _prefixController,
+                              controller: _desktopServerController,
                               decoration: const InputDecoration(
-                                labelText: 'Scramjet Prefix',
-                                hintText: '/scram/',
+                                labelText: 'Desktop Local Server URL',
+                                hintText: 'http://127.0.0.1:8080',
                                 prefixIcon:
-                                    Icon(Icons.route_outlined),
+                                    Icon(Icons.computer_rounded),
                                 helperText:
-                                    'The path prefix used by Scramjet on your server',
+                                    'Desktop launches this local ScramJet backend',
                               ),
                               textInputAction: TextInputAction.done,
                               validator: (v) {
                                 if (v == null || v.trim().isEmpty) {
-                                  return 'Prefix is required';
+                                  return 'Desktop local server URL is required';
+                                }
+                                final uri = Uri.tryParse(v.trim());
+                                if (uri == null ||
+                                    !uri.hasScheme ||
+                                    (!uri.scheme.startsWith('http'))) {
+                                  return 'Enter a valid http:// or https:// URL';
                                 }
                                 return null;
                               },
+                            ),
+                            const SizedBox(height: 8),
+                            SwitchListTile(
+                              contentPadding: EdgeInsets.zero,
+                              value: _preferLocalDesktopServer,
+                              onChanged: (v) => setState(
+                                  () => _preferLocalDesktopServer = v),
+                              title: const Text(
+                                  'Prefer local backend on desktop'),
+                              subtitle: const Text(
+                                  'When enabled, desktop uses local ScramJet before web fallback'),
+                              secondary:
+                                  const Icon(Icons.lan_rounded),
                             ),
                           ],
                         ),
@@ -351,9 +376,9 @@ class _DeployCard extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'JetVeil needs a Scramjet backend to proxy web traffic. '
-              'Deploy the server directory to Vercel in one click — '
-              'no configuration required.',
+              'JetVeil uses Ultraviolet on Vercel for web deployments. '
+              'Desktop runs a local ScramJet backend by default and falls back '
+              'to this web URL when needed.',
               style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant),
             ),
@@ -381,7 +406,6 @@ class _DeployBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return OutlinedButton.icon(
       onPressed: () async {
         final uri = Uri.parse(url);

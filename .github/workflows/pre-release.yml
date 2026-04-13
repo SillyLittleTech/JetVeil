@@ -1,7 +1,6 @@
 name: Pre-Release (PR Ready for Review)
 
-# Web deployment is handled automatically by Cloudflare Pages (configured in
-# the CF dashboard — no CI step needed here).
+# Web deployment is handled by the production workflow's Vercel step.
 on:
   pull_request:
     types:
@@ -235,9 +234,9 @@ jobs:
             | 🪟 Windows (x64) | `jetveil-windows-x64.zip` |
             | 🍎 macOS | `jetveil-macos.zip` |
 
-            ### Server
-            The server is not bundled in these artifacts.
-            Deploy it separately via the one-click Vercel button in the app Settings.
+            ### Server architecture
+            Desktop builds include a local ScramJet backend at `desktop/scramjet-server`.
+            The Vercel `server/` deployment uses Ultraviolet for web clients.
           files: |
             artifacts/linux-build-pre/jetveil-linux-x64.tar.gz
             artifacts/windows-build-pre/jetveil-windows-x64.zip

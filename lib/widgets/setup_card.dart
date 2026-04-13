@@ -50,7 +50,7 @@ class SetupCard extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             Text(
-              'JetVeil is a deep web proxy powered by the Scramjet engine. '
+              'JetVeil uses an Ultraviolet backend for web deployments. '
               'To start browsing, deploy the server to Vercel (free) and '
               'paste the URL into Settings.',
               style: theme.textTheme.bodyMedium?.copyWith(
@@ -66,7 +66,7 @@ class SetupCard extends StatelessWidget {
               icon: Icons.cloud_upload_outlined,
               title: 'Deploy the server',
               subtitle:
-                  'Click "Deploy to Vercel" in Settings — it\'s free and takes ~2 minutes.',
+                  'Click "Deploy to Vercel" in Settings to deploy the Ultraviolet server.',
               theme: theme,
             ),
             const SizedBox(height: 12),
@@ -84,7 +84,7 @@ class SetupCard extends StatelessWidget {
               icon: Icons.travel_explore_rounded,
               title: 'Start browsing',
               subtitle:
-                  'Type any URL in the address bar and JetVeil routes it through Scramjet.',
+                  'Type any URL in the address bar and JetVeil routes it through Ultraviolet.',
               theme: theme,
             ),
 

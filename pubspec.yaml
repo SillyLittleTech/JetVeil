@@ -1,5 +1,5 @@
 name: jet_veil
-description: JetVeil — a deep proxy browser powered by the Scramjet engine. Successor to ACprox.
+description: JetVeil — a deep proxy browser using Ultraviolet on web and ScramJet locally on desktop. Successor to ACprox.
 publish_to: 'none'
 
 version: 1.0.0+1

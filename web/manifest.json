@@ -1,7 +1,7 @@
 {
   "name": "JetVeil",
   "short_name": "JetVeil",
-  "description": "Deep proxy browser powered by the Scramjet engine",
+  "description": "Deep proxy browser with Ultraviolet on web and ScramJet on desktop",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#0D0D17",
