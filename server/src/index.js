@@ -14,20 +14,17 @@
 import { createServer } from "node:http";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { join, normalize, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { createBareServer } from "@tomphttp/bare-server-node";
 import { lookup as mimeLookup } from "mime-types";
 
 // ─── Paths ────────────────────────────────────────────────────────────────────
 
-const __dirname = fileURLToPath(new URL(".", import.meta.url));
-const publicPath = resolve(join(__dirname, "../public"));
+const publicPath = resolve(join(process.cwd(), "public"));
 const scramjetBase = resolve(join(publicPath, "scram"));
 const baremuxBase = resolve(join(publicPath, "baremux"));
 const baremodBase = resolve(join(publicPath, "baremod"));
 
-console.log("[JetVeil] __dirname   =", __dirname);
 console.log("[JetVeil] publicPath  =", publicPath);
 console.log("[JetVeil] scramjetBase=", scramjetBase);
 console.log("[JetVeil] baremuxBase =", baremuxBase);
