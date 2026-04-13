@@ -1,19 +1,18 @@
 {
-  "name": "jetveil-server",
+  "name": "jetveil-proxy-server",
   "version": "1.0.0",
-  "description": "JetVeil — Scramjet proxy server. Deploy to Vercel (free tier).",
+  "private": true,
   "type": "module",
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20"
   },
   "scripts": {
-    "start": "node src/index.js",
-    "dev": "node --watch src/index.js"
+    "start": "node index.js",
+    "dev": "node index.js"
   },
   "dependencies": {
-    "@mercuryworkshop/bare-mux": "^2.1.7",
-    "@mercuryworkshop/scramjet": "https://github.com/MercuryWorkshop/scramjet/releases/download/latest/mercuryworkshop-scramjet-2.0.0-alpha.tgz",
-    "@tomphttp/bare-server-node": "^2.0.3",
-    "mime-types": "^2.1.35"
+    "@titaniumnetwork-dev/ultraviolet": "^3.2.10",
+    "@tomphttp/bare-server-node": "^2.0.5",
+    "express": "^4.21.2"
   }
 }
