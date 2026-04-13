@@ -27,6 +27,12 @@ const scramjetBase = resolve(join(publicPath, "scram"));
 const baremuxBase = resolve(join(publicPath, "baremux"));
 const baremodBase = resolve(join(publicPath, "baremod"));
 
+console.log("[JetVeil] __dirname   =", __dirname);
+console.log("[JetVeil] publicPath  =", publicPath);
+console.log("[JetVeil] scramjetBase=", scramjetBase);
+console.log("[JetVeil] baremuxBase =", baremuxBase);
+console.log("[JetVeil] baremodBase =", baremodBase);
+
 // ─── Bare server (HTTP proxy transport) ──────────────────────────────────────
 
 const bare = createBareServer("/bare/");
@@ -69,6 +75,7 @@ function safeJoin(base, rel) {
  */
 function serveFile(res, filePath) {
   if (!filePath) {
+    console.warn("[JetVeil] serveFile: null path → 404");
     res.writeHead(404, { "Content-Type": "text/plain" });
     res.end("404 Not Found");
     return;
@@ -82,7 +89,8 @@ function serveFile(res, filePath) {
       "Content-Length": stat.size,
     });
     createReadStream(filePath).pipe(res);
-  } catch {
+  } catch (err) {
+    console.warn(`[JetVeil] serveFile: ${filePath} → 404 (${err.message})`);
     res.writeHead(404, { "Content-Type": "text/plain" });
     res.end("404 Not Found");
   }

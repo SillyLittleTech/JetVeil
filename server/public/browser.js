@@ -26,13 +26,28 @@ const scramjet = new ScramjetController({
 const connection = new BareMux.BareMuxConnection("/baremux/worker.js");
 
 let transportReady = false;
-let initError = null;
+let scramjetInitPromise = null;
 let proxyFrame = null;
 
 function showError(msg) {
+  let detail;
+  if (msg instanceof Error) {
+    console.error("[JetVeil] Error:", msg.stack || msg);
+    detail = msg.stack || msg.message || String(msg);
+  } else if (msg && typeof msg === "object") {
+    console.error("[JetVeil] Error object:", msg);
+    try {
+      detail = msg.message || JSON.stringify(msg, null, 2);
+    } catch {
+      detail = String(msg);
+    }
+  } else {
+    console.error("[JetVeil] Error:", msg);
+    detail = String(msg ?? "Unknown error");
+  }
   $loading.hidden = true;
   $error.hidden = false;
-  document.getElementById("error-message").textContent = msg;
+  document.getElementById("error-message").textContent = detail;
 }
 
 function normaliseUrl(raw) {
@@ -108,22 +123,31 @@ async function registerSWWithTimeout(timeoutMs = 6000) {
 
 async function ensureBareTransport() {
   if (transportReady) return;
+  console.log("[JetVeil] Setting bare transport to /baremod/index.mjs…");
   await connection.setTransport("/baremod/index.mjs", [`${location.origin}/bare/`]);
   transportReady = true;
+  console.log("[JetVeil] Bare transport set.");
 }
 
-function startScramjetInit() {
-  scramjet
-    .init()
-    .catch(async (err) => {
-      if (!isScramjetSchemaNotFound(err)) throw err;
-      await recoverScramjetIndexedDb();
-      await scramjet.init();
-    })
-    .catch((err) => {
-      initError = err;
-      console.error("Scramjet init failed:", err);
-    });
+async function runScramjetInit() {
+  console.log("[JetVeil] Scramjet init starting…");
+  try {
+    await scramjet.init();
+    console.log("[JetVeil] Scramjet init complete.");
+  } catch (err) {
+    if (!isScramjetSchemaNotFound(err)) throw err;
+    console.warn("[JetVeil] Scramjet IndexedDB NotFoundError — wiping DBs and retrying…", err);
+    await recoverScramjetIndexedDb();
+    await scramjet.init();
+    console.log("[JetVeil] Scramjet init complete after DB recovery.");
+  }
+}
+
+function ensureScramjetInit() {
+  if (!scramjetInitPromise) {
+    scramjetInitPromise = runScramjetInit();
+  }
+  return scramjetInitPromise;
 }
 
 function clearStaleBootstrapParams() {
@@ -161,21 +185,24 @@ function showProxy() {
 
 async function navigate(url) {
   try {
-    if (initError) throw initError;
+    console.log("[JetVeil] navigate: registering service worker…");
     await registerSWWithTimeout();
+    console.log("[JetVeil] navigate: setting bare transport…");
     await ensureBareTransport();
-    startScramjetInit();
+    console.log("[JetVeil] navigate: initialising Scramjet…");
+    await ensureScramjetInit();
+    console.log("[JetVeil] navigate: creating proxy frame…");
     const frame = ensureProxyFrame();
     showProxy();
     frame.go(url);
   } catch (err) {
-    showError(`Navigation failed: ${err.message}`);
+    console.error("[JetVeil] navigate failed:", err);
+    showError(err);
   }
 }
 
 async function main() {
   clearStaleBootstrapParams();
-  startScramjetInit();
 
   $loading.hidden = true;
   $app.hidden = false;
@@ -214,4 +241,4 @@ async function main() {
   });
 }
 
-main().catch((err) => showError(String(err)));
+main().catch((err) => showError(err));
