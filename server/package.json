@@ -15,6 +15,7 @@
     "@mercuryworkshop/bare-mux": "^2.1.7",
     "@titaniumnetwork-dev/ultraviolet": "^3.2.10",
     "@tomphttp/bare-server-node": "^2.0.3",
+    "express": "^5.1.0",
     "mime-types": "^2.1.35"
   }
 }

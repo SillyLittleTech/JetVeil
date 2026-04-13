@@ -1,171 +1,76 @@
 /**
  * JetVeil — Ultraviolet web server (Vercel-optimized)
  *
- * Handles:
- *  - /bare/    → bare-server-node HTTP proxy transport
- *  - /uv/      → Ultraviolet static vendor files
- *  - /baremux/ → bare-mux client worker files
- *  - /*        → JetVeil public UI (index.html + assets)
+ * Modeled after the legacy ACProx Vercel server layout:
+ * - express app for static/vendor routing
+ * - bare server routing in front of express
+ * - bare upgrade handling for environments that support it
  */
 
+import express from "express";
 import { createServer } from "node:http";
-import { createReadStream, existsSync, statSync } from "node:fs";
-import { join, normalize, resolve } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { createBareServer } from "@tomphttp/bare-server-node";
-import { lookup as mimeLookup } from "mime-types";
-
 import { uvPath } from "@titaniumnetwork-dev/ultraviolet";
+import { createBareServer } from "@tomphttp/bare-server-node";
 import { bareModulePath } from "@mercuryworkshop/bare-as-module3";
 import { baremuxPath } from "@mercuryworkshop/bare-mux/node";
 
-// ─── Paths ────────────────────────────────────────────────────────────────────
-
-const __dirname = fileURLToPath(new URL(".", import.meta.url));
-const publicPath = resolve(join(__dirname, "../public"));
-const ultravioletBase = resolve(uvPath);
-const baremuxBase = resolve(baremuxPath);
-const baremodBase = resolve(bareModulePath);
-
-// ─── Bare server (HTTP proxy transport) ──────────────────────────────────────
-
+const publicPath = fileURLToPath(new URL("../public/", import.meta.url));
 const bare = createBareServer("/bare/");
 
-// ─── Path helpers ─────────────────────────────────────────────────────────────
+const app = express();
+app.use(express.static(publicPath));
+app.use("/uv/", express.static(uvPath));
+app.use("/baremux/", express.static(baremuxPath));
+app.use("/baremod/", express.static(bareModulePath));
+
+// Keep SPA behavior for JetVeil while matching ACProx's server style.
+app.use((req, res) => {
+  res.sendFile(join(publicPath, "index.html"));
+});
 
 /**
- * Safely resolves a URL path segment against a base directory.
- *
- * Strips query strings, normalises the path, and confirms the resolved
- * absolute path is still inside `base` — preventing directory traversal.
- *
- * @param {string} base   Absolute base directory (already resolved).
- * @param {string} rel    Relative path from the URL (untrusted user input).
- * @returns {string|null} Absolute path inside base, or null if traversal detected.
- */
-function safeJoin(base, rel) {
-  // Strip query string and decode percent-encoding
-  let decoded;
-  try {
-    decoded = decodeURIComponent(rel.split("?")[0]);
-  } catch {
-    // Malformed percent-encoding — treat as not found rather than crashing
-    return null;
-  }
-  // Normalise to remove ".." sequences
-  const normalised = normalize(decoded).replace(/^(\.\.(\/|\\|$))+/, "");
-  const full = resolve(join(base, normalised));
-  // Reject if the resolved path escapes the base directory
-  if (!full.startsWith(base + "/") && full !== base) return null;
-  return full;
-}
-
-// ─── Static file helper ───────────────────────────────────────────────────────
-
-/**
- * Streams a file to the response, or sends a 404 if not found.
- * @param {import("node:http").ServerResponse} res
- * @param {string|null} filePath  Absolute path to the file (null → 404).
- */
-function serveFile(res, filePath) {
-  if (!filePath) {
-    res.writeHead(404, { "Content-Type": "text/plain" });
-    res.end("404 Not Found");
-    return;
-  }
-  try {
-    const stat = statSync(filePath);
-    if (!stat.isFile()) throw new Error("not a file");
-    const mime = mimeLookup(filePath) || "application/octet-stream";
-    res.writeHead(200, {
-      "Content-Type": mime,
-      "Content-Length": stat.size,
-    });
-    createReadStream(filePath).pipe(res);
-  } catch {
-    res.writeHead(404, { "Content-Type": "text/plain" });
-    res.end("404 Not Found");
-  }
-}
-
-// ─── Request handler ──────────────────────────────────────────────────────────
-
-/**
- * Main HTTP handler — exported for Vercel serverless and also used by the
- * standalone Node.js server below.
- *
+ * Main HTTP handler for Vercel serverless usage.
  * @param {import("node:http").IncomingMessage} req
  * @param {import("node:http").ServerResponse} res
  */
 export default function handler(req, res) {
-  // Security headers required for UV SharedArrayBuffer usage.
   res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
   res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
 
-  const rawUrl = req.url ?? "/";
-  const url = rawUrl.split("?")[0]; // strip query string for routing
-
-  // ── Bare proxy ─────────────────────────────────────────────────────────────
   if (bare.shouldRoute(req)) {
     return bare.routeRequest(req, res);
   }
 
-  // ── Ultraviolet static files ───────────────────────────────────────────────
-  if (url.startsWith("/uv/")) {
-    const rel = url.slice("/uv/".length);
-    const publicUvFile = safeJoin(join(publicPath, "uv"), rel);
-    if (
-      publicUvFile &&
-      existsSync(publicUvFile) &&
-      statSync(publicUvFile).isFile()
-    ) {
-      return serveFile(res, publicUvFile);
-    }
-    return serveFile(res, safeJoin(ultravioletBase, rel));
-  }
-
-  // ── bare-mux client worker ─────────────────────────────────────────────────
-  if (url.startsWith("/baremux/")) {
-    const rel = url.slice("/baremux/".length);
-    return serveFile(res, safeJoin(baremuxBase, rel));
-  }
-
-  // ── bare transport module for bare-mux ────────────────────────────────────
-  if (url.startsWith("/baremod/")) {
-    const rel = url.slice("/baremod/".length);
-    return serveFile(res, safeJoin(baremodBase, rel));
-  }
-
-  // ── Public UI (JetVeil frontend) ───────────────────────────────────────────
-  const relPath = url === "/" ? "index.html" : url;
-  const candidate = safeJoin(publicPath, relPath);
-  if (candidate && existsSync(candidate) && statSync(candidate).isFile()) {
-    return serveFile(res, candidate);
-  }
-
-  // SPA fallback — always serve index.html for unmatched routes
-  return serveFile(res, join(publicPath, "index.html"));
+  return app(req, res);
 }
-
-// ─── Standalone Node.js server (local dev / Render / Docker) ─────────────────
-// Vercel imports `handler` directly; this block is skipped in that environment.
 
 if (!process.env.VERCEL) {
   const PORT = parseInt(process.env.PORT ?? "8080", 10);
 
-  const server = createServer()
-    .on("request", (req, res) => handler(req, res))
-    .on("upgrade", (req, socket, _head) => {
-      // Bare HTTP transport is used for this deployment profile.
+  const server = createServer();
+  server.on("request", (req, res) => handler(req, res));
+  server.on("upgrade", (req, socket, head) => {
+    if (bare.shouldRoute(req)) {
+      bare.routeUpgrade(req, socket, head);
+    } else {
       socket.end();
-    });
+    }
+  });
 
   server.listen(PORT, "0.0.0.0", () => {
     console.log(`JetVeil server running on http://localhost:${PORT}`);
   });
 
-  process.on("SIGINT",  () => { server.close(); process.exit(0); });
-  process.on("SIGTERM", () => { server.close(); process.exit(0); });
+  process.on("SIGINT", () => {
+    server.close();
+    process.exit(0);
+  });
+  process.on("SIGTERM", () => {
+    server.close();
+    process.exit(0);
+  });
 }
 
