@@ -12,7 +12,7 @@ class BookmarkService extends ChangeNotifier {
   List<Bookmark> _bookmarks = [];
 
   List<Bookmark> get bookmarks => List.unmodifiable(_bookmarks);
-
+  
   Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
     _load();

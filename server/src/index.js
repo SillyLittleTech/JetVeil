@@ -12,7 +12,7 @@
 
 import { createServer } from "node:http";
 import { createReadStream, existsSync, statSync } from "node:fs";
-import { join, normalize, resolve } from "node:path";
+import { dirname, join, normalize, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { createBareServer } from "@tomphttp/bare-server-node";
@@ -20,6 +20,7 @@ import { lookup as mimeLookup } from "mime-types";
 
 import { scramjetPath } from "@mercuryworkshop/scramjet/path";
 import { baremuxPath } from "@mercuryworkshop/bare-mux/node";
+import { createRequire } from "node:module";
 
 // ─── Paths ────────────────────────────────────────────────────────────────────
 
@@ -27,6 +28,33 @@ const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const publicPath = resolve(join(__dirname, "../public"));
 const scramjetBase = resolve(scramjetPath);
 const baremuxBase  = resolve(baremuxPath);
+const require = createRequire(import.meta.url);
+const bareAsModule3Entrypoint = require.resolve("@mercuryworkshop/bare-as-module3");
+const bareAsModule3Base = resolve(
+  join(dirname(bareAsModule3Entrypoint), "../dist")
+);
+
+// ─── In-memory debug logs ───────────────────────────────────────────────────
+
+const MAX_DEBUG_LOGS = 400;
+const serverDebugLogs = [];
+
+function addServerLog(level, message, data = undefined) {
+  serverDebugLogs.push({
+    ts: new Date().toISOString(),
+    level,
+    message,
+    data,
+  });
+  if (serverDebugLogs.length > MAX_DEBUG_LOGS) {
+    serverDebugLogs.shift();
+  }
+}
+
+addServerLog("info", "JetVeil server module loaded", {
+  node: process.version,
+  platform: process.platform,
+});
 
 // ─── Bare server (HTTP proxy transport) ──────────────────────────────────────
 
@@ -106,6 +134,26 @@ export default function handler(req, res) {
   const rawUrl = req.url ?? "/";
   const url = rawUrl.split("?")[0]; // strip query string for routing
 
+  addServerLog("request", "HTTP request", {
+    method: req.method,
+    url: rawUrl,
+  });
+
+  // ── Debug endpoint ────────────────────────────────────────────────────────
+  if (url === "/__debug/logs") {
+    const payload = JSON.stringify({
+      now: new Date().toISOString(),
+      logs: serverDebugLogs,
+    });
+    res.writeHead(200, {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-store",
+      "Content-Length": Buffer.byteLength(payload),
+    });
+    res.end(payload);
+    return;
+  }
+
   // ── Bare proxy ─────────────────────────────────────────────────────────────
   if (bare.shouldRoute(req)) {
     return bare.routeRequest(req, res);
@@ -121,6 +169,12 @@ export default function handler(req, res) {
   if (url.startsWith("/baremux/")) {
     const rel = url.slice("/baremux/".length);
     return serveFile(res, safeJoin(baremuxBase, rel));
+  }
+
+  // ── bare-as-module3 transport files for bare-mux ────────────────────────
+  if (url.startsWith("/transports/bare-as-module3/")) {
+    const rel = url.slice("/transports/bare-as-module3/".length);
+    return serveFile(res, safeJoin(bareAsModule3Base, rel));
   }
 
   // ── Public UI (JetVeil frontend) ───────────────────────────────────────────
@@ -144,6 +198,9 @@ export function createJetVeilServer() {
     .on("request", (req, res) => handler(req, res))
     .on("upgrade", (req, socket, _head) => {
       // Wisp WebSocket support for self-hosted deployments.
+      addServerLog("warn", "Upgrade request rejected", {
+        url: req.url,
+      });
       socket.end();
     });
 }
@@ -168,6 +225,11 @@ export function startJetVeilServer(options = {}) {
       const boundPort =
         address && typeof address === "object" ? address.port : port;
       const url = `http://${host}:${boundPort}`;
+      addServerLog("info", "JetVeil server listening", {
+        host,
+        port: boundPort,
+        url,
+      });
       resolveStart({
         server,
         host,

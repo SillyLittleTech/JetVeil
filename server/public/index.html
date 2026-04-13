@@ -26,6 +26,9 @@
       </svg>
     </div>
     <p class="loading-label">Initialising Scramjet…</p>
+    <button id="debug-toggle" class="debug-toggle" type="button">
+      Advanced Debugging Info
+    </button>
   </div>
 
   <!-- ── Error state ────────────────────────────────────────────────────── -->
@@ -39,6 +42,9 @@
     <h2>Scramjet failed to initialise</h2>
     <p id="error-message">An unknown error occurred.</p>
     <button onclick="location.reload()">Retry</button>
+    <button id="debug-toggle-error" class="debug-toggle" type="button">
+      Advanced Debugging Info
+    </button>
   </div>
 
   <!-- ── Main UI (shown after Scramjet is ready) ──────────────────────── -->
@@ -82,6 +88,9 @@
       </form>
 
       <div class="toolbar-actions">
+        <button class="icon-btn" id="debug-btn" title="Advanced Debugging Info" aria-label="Advanced Debugging Info">
+          🧪
+        </button>
         <button class="icon-btn" id="home-btn" title="Home" aria-label="Home">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
                xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -138,7 +147,18 @@
         </button>
       </div>
     </main>
+
+    <section id="frame-host" hidden></section>
   </div>
+
+  <section id="debug-panel" hidden>
+    <div class="debug-panel-header">
+      <h3>Advanced Debugging Info</h3>
+      <button id="debug-close" type="button">Close</button>
+    </div>
+    <p class="debug-note">Includes recent browser logs and server logs.</p>
+    <pre id="debug-content">No debug data yet.</pre>
+  </section>
 
   <script type="module" src="browser.js"></script>
 </body>
