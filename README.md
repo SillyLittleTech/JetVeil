@@ -1,19 +1,14 @@
 # JetVeil
 
-JetVeil is now a desktop-first web wrapper app that runs a local ScramJet proxy server on the user's device.
+JetVeil is a desktop-first web wrapper app that runs a local ScramJet proxy server on the user's device.
 
-## What changed
-
-- Removed repository-level PWA/web hosting files used for Cloudflare Pages, Vercel SPA rewrites, and GitHub Pages redirects.
-- Added an Electron wrapper app that launches JetVeil in a native desktop window.
-- Updated the ScramJet server to support embeddable startup so the desktop app can boot and stop it automatically.
-- Preserved the existing JetVeil UI design by reusing the current server frontend in `server/public`.
-
+It is the spiritual successor to [ACPRox](https://github.com/sillylittletech/acprox).
+JetVeil, however, is desktop focused, admisted rising policy regulations from free providers on Reverse Proxies being hosted on their hardware, due to heavy bandwidth and possible legal issues.
 ## Architecture
 
 | Layer | Technology | Runtime |
 |-------|------------|---------|
-| Desktop wrapper | Electron | Windows / macOS / Linux |
+| Desktop wrapper | Electron+Flutter | Windows / macOS / Linux |
 | Local proxy server | Node.js + ScramJet + bare-server | User device (localhost) |
 | Browser UI | Existing JetVeil HTML/CSS/JS | Loaded from local server |
 

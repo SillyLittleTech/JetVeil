@@ -228,12 +228,12 @@ function getActiveTab() {
 
 function syncToolbarState() {
   const activeTab = getActiveTab();
-  const hasFrame = Boolean(activeTab?.frame);
+  const hasFrame = Boolean(activeTab?.frame || activeTab?.directFrame);
 
   if ($navBack) $navBack.disabled = !hasFrame;
   if ($navForward) $navForward.disabled = !hasFrame;
   if ($navReload) $navReload.disabled = !hasFrame;
-  if ($navCloseTab) $navCloseTab.disabled = tabs.length <= 1;
+  if ($navCloseTab) $navCloseTab.disabled = tabs.length === 0;
 
   if ($input && activeTab?.url && document.activeElement !== $input) {
     $input.value = activeTab.url;
@@ -291,6 +291,45 @@ function ensureFrameForTab(tab) {
     syncToolbarState();
   });
 
+  frame.frame.addEventListener("load", () => {
+    try {
+      const win = frame.frame.contentWindow;
+      if (!win || win.__jetveilDarkModePatched) return;
+
+      const originalMatchMedia = typeof win.matchMedia === "function"
+        ? win.matchMedia.bind(win)
+        : null;
+
+      if (originalMatchMedia) {
+        win.matchMedia = (query) => {
+          const normalized = String(query || "").toLowerCase();
+          if (normalized.includes("prefers-color-scheme: dark")) {
+            return {
+              matches: true,
+              media: String(query || ""),
+              onchange: null,
+              addEventListener() {},
+              removeEventListener() {},
+              addListener() {},
+              removeListener() {},
+              dispatchEvent() { return false; },
+            };
+          }
+          return originalMatchMedia(query);
+        };
+      }
+
+      if (win.document?.documentElement) {
+        win.document.documentElement.style.colorScheme = "dark";
+        win.document.documentElement.style.setProperty("color-scheme", "dark");
+      }
+
+      win.__jetveilDarkModePatched = true;
+    } catch {
+      // Best-effort only; some frames may reject script access.
+    }
+  });
+
   tab.frame = frame;
   $frameHost.appendChild(frame.frame);
   return frame;
@@ -346,6 +385,20 @@ function ensureDirectFrameForTab(tab) {
     tab.title = formatTabLabel(frame.currentUrl);
     updateTabButton(tab);
     syncToolbarState();
+
+    window.setTimeout(() => {
+      if (!tab.directFrame || tab.mode !== "direct" || tab.url !== frame.currentUrl) return;
+      try {
+        const currentHref = iframe.contentWindow?.location?.href;
+        if (currentHref === "about:blank" || currentHref === "about:srcdoc") {
+          pushAppLog("warn", "Bypassed site refused embedding; opening directly", { rawUrl: frame.currentUrl });
+          window.location.assign(frame.currentUrl);
+        }
+      } catch {
+        // If the frame is cross-origin and accessible only by the browser,
+        // the destination likely loaded successfully.
+      }
+    }, 1200);
   });
 
   tab.directFrame = frame;
@@ -425,7 +478,23 @@ function createTab({ title = "New Tab", url = "", activate = true } = {}) {
 }
 
 function closeTab(tabId) {
-  if (tabs.length <= 1) return;
+  if (tabs.length <= 1) {
+    const tab = getActiveTab() ?? tabs[0];
+    if (!tab) return;
+
+    tab.button?.classList.add("active");
+    tab.frame?.frame?.remove();
+    tab.directFrame?.frame?.remove();
+    tab.frame = null;
+    tab.directFrame = null;
+    tab.mode = "home";
+    tab.url = "";
+    tab.title = "Home";
+    updateTabButton(tab);
+    showTab(tab.id);
+    syncToolbarState();
+    return;
+  }
 
   const index = tabs.findIndex((tab) => tab.id === tabId);
   if (index === -1) return;

@@ -1,6 +1,6 @@
 {
   "name": "jetveil",
-  "version": "1.0.0",
+  "version": "1.6.3",
   "private": true,
   "description": "JetVeil multiplatform desktop web wrapper with local ScramJet proxy.",
   "scripts": {
