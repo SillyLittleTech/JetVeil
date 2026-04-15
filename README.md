@@ -40,11 +40,7 @@ npm run server:start
 
 ## Build desktop binaries
 
-Install dependencies first:
-
-```bash
-npm run install:all
-```
+The repo-level build scripts now bootstrap their own dependencies, so a fresh clone can run them directly.
 
 Build for current Linux machine:
 
@@ -55,7 +51,7 @@ npm run build:linux
 Build for macOS (ZIP, recommended for quick testing):
 
 ```bash
-npm run build:mac
+npm run build:macos
 ```
 
 Optional DMG build:
@@ -80,7 +76,7 @@ Output artifacts are written under `desktop/dist/`.
 
 Use this file for macOS testing:
 
-- `desktop/dist/JetVeil-1.0.0-mac.zip`
+- `desktop/dist/JetVeil-1.6.3-arm64-mac.zip`
 
 Do not open these directly:
 
