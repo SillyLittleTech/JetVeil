@@ -36,8 +36,8 @@ const $browserPrefsPanel = document.getElementById("browser-prefs-panel");
 const $browserPrefsClose = document.getElementById("browser-prefs-close");
 const $browserPrefsForm = document.getElementById("browser-prefs-form");
 const $bypassHostsInput = document.getElementById("bypass-hosts");
-const $openBypassedExternally = document.getElementById("open-bypassed-externally");
 const $compactToolbar = document.getElementById("compact-toolbar");
+const $accentPresets = document.getElementById("accent-presets");
 
 const appLogs = [];
 const MAX_APP_LOGS = 300;
@@ -59,12 +59,21 @@ const SCRAMJET_CONFIG = {
   },
 };
 
+const ACCENT_PRESETS = [
+  { name: "Jet Cyan", color: "#00E5FF" },
+  { name: "Neon Violet", color: "#AB47BC" },
+  { name: "Emerald", color: "#00E676" },
+  { name: "Solar Orange", color: "#FF6D00" },
+  { name: "Rose Red", color: "#FF1744" },
+  { name: "Sky Blue", color: "#40C4FF" },
+];
+
 const BROWSER_PREFS_KEY = "jetveil-browser-prefs";
 
 const DEFAULT_BROWSER_PREFS = {
   bypassHostsText: "",
-  openBypassedExternally: true,
   compactToolbar: false,
+  accentColor: "#00E5FF",
 };
 
 let browserPrefs = loadBrowserPrefs();
@@ -95,8 +104,8 @@ function loadBrowserPrefs() {
       ...DEFAULT_BROWSER_PREFS,
       ...parsed,
       bypassHostsText: String(parsed?.bypassHostsText ?? ""),
-      openBypassedExternally: Boolean(parsed?.openBypassedExternally ?? true),
       compactToolbar: Boolean(parsed?.compactToolbar ?? false),
+      accentColor: String(parsed?.accentColor ?? DEFAULT_BROWSER_PREFS.accentColor),
     };
   } catch {
     return { ...DEFAULT_BROWSER_PREFS };
@@ -117,6 +126,72 @@ function getBypassRules() {
     .map((entry) => entry.trim().toLowerCase())
     .filter(Boolean)
     .map((entry) => entry.replace(/^https?:\/\//, "").split("/")[0]);
+}
+
+function hexToRgb(hex) {
+  const normalized = String(hex).trim().replace(/^#/, "");
+  if (!/^[0-9a-f]{6}$/i.test(normalized)) return null;
+
+  return {
+    r: Number.parseInt(normalized.slice(0, 2), 16),
+    g: Number.parseInt(normalized.slice(2, 4), 16),
+    b: Number.parseInt(normalized.slice(4, 6), 16),
+  };
+}
+
+function applyBrowserAccent(accentColor) {
+  const fallback = DEFAULT_BROWSER_PREFS.accentColor;
+  const rgb = hexToRgb(accentColor) ?? hexToRgb(fallback);
+  if (!rgb) return;
+
+  const accent = `#${String(accentColor || fallback).replace(/^#/, "")}`;
+  document.documentElement.style.setProperty("--accent", accent);
+  document.documentElement.style.setProperty(
+    "--accent-dim",
+    `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.12)`
+  );
+
+  const themeColor = document.querySelector('meta[name="theme-color"]');
+  if (themeColor) themeColor.setAttribute("content", accent);
+}
+
+function renderAccentPresets() {
+  if (!$accentPresets) return;
+
+  $accentPresets.innerHTML = "";
+
+  ACCENT_PRESETS.forEach(({ name, color }) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "accent-preset";
+    button.setAttribute("aria-label", name);
+
+    if (browserPrefs.accentColor?.toLowerCase() === color.toLowerCase()) {
+      button.classList.add("selected");
+    }
+
+    const swatch = document.createElement("span");
+    swatch.className = "accent-preset-swatch";
+    swatch.style.background = color;
+
+    const label = document.createElement("span");
+    label.className = "accent-preset-label";
+    label.textContent = name;
+
+    button.append(swatch, label);
+    button.addEventListener("click", () => {
+      browserPrefs = {
+        ...browserPrefs,
+        accentColor: color,
+      };
+      saveBrowserPrefs();
+      applyBrowserAccent(color);
+      renderAccentPresets();
+      pushAppLog("info", "Browser accent updated", { color, name });
+    });
+
+    $accentPresets.appendChild(button);
+  });
 }
 
 function isBypassedUrl(rawUrl) {
@@ -147,19 +222,6 @@ function formatTabLabel(rawUrl) {
   }
 }
 
-function openBypassedUrl(rawUrl) {
-  pushAppLog("info", "Bypassing proxy for URL", { rawUrl });
-  if (browserPrefs.openBypassedExternally) {
-    const opened = window.open(rawUrl, "_blank", "noopener,noreferrer");
-    if (!opened) {
-      pushAppLog("warn", "Popup blocked while opening bypassed URL", { rawUrl });
-    }
-    return;
-  }
-
-  window.location.assign(rawUrl);
-}
-
 function getActiveTab() {
   return tabs.find((tab) => tab.id === activeTabId) ?? null;
 }
@@ -182,12 +244,17 @@ function updateLayoutMode() {
   document.body.classList.toggle("compact-toolbar", browserPrefs.compactToolbar);
 }
 
+function updateBrowserTheme() {
+  applyBrowserAccent(browserPrefs.accentColor);
+  updateLayoutMode();
+  renderAccentPresets();
+}
+
 function setBrowserPrefsOpen(open) {
   browserPrefsOpen = open;
   if ($browserPrefsPanel) $browserPrefsPanel.hidden = !open;
   if (open) {
     $bypassHostsInput.value = browserPrefs.bypassHostsText;
-    $openBypassedExternally.checked = browserPrefs.openBypassedExternally;
     $compactToolbar.checked = browserPrefs.compactToolbar;
   }
 }
@@ -229,17 +296,74 @@ function ensureFrameForTab(tab) {
   return frame;
 }
 
+function ensureDirectFrameForTab(tab) {
+  if (tab.directFrame) return tab.directFrame;
+
+  const iframe = document.createElement("iframe");
+  iframe.hidden = true;
+  iframe.classList.add("direct-frame");
+  iframe.setAttribute("referrerpolicy", "no-referrer-when-downgrade");
+
+  const frame = {
+    frame: iframe,
+    currentUrl: "",
+    go(rawUrl) {
+      this.currentUrl = rawUrl;
+      tab.url = rawUrl;
+      tab.title = formatTabLabel(rawUrl);
+      updateTabButton(tab);
+      syncToolbarState();
+      iframe.src = rawUrl;
+    },
+    back() {
+      try {
+        iframe.contentWindow?.history.back();
+      } catch (error) {
+        pushAppLog("warn", "Direct frame back failed", { error: String(error) });
+      }
+    },
+    forward() {
+      try {
+        iframe.contentWindow?.history.forward();
+      } catch (error) {
+        pushAppLog("warn", "Direct frame forward failed", { error: String(error) });
+      }
+    },
+    reload() {
+      try {
+        iframe.contentWindow?.location.reload();
+      } catch {
+        if (this.currentUrl) {
+          iframe.src = this.currentUrl;
+        }
+      }
+    },
+  };
+
+  iframe.addEventListener("load", () => {
+    if (!frame.currentUrl) return;
+    tab.url = frame.currentUrl;
+    tab.title = formatTabLabel(frame.currentUrl);
+    updateTabButton(tab);
+    syncToolbarState();
+  });
+
+  tab.directFrame = frame;
+  $frameHost.appendChild(iframe);
+  return frame;
+}
+
 function showTab(tabId) {
   activeTabId = tabId;
 
   tabs.forEach((tab) => {
-    if (tab.frame?.frame) {
-      tab.frame.frame.hidden = tab.id !== tabId;
-    }
+    const isActive = tab.id === tabId;
+    if (tab.frame?.frame) tab.frame.frame.hidden = !(isActive && tab.mode === "proxied");
+    if (tab.directFrame?.frame) tab.directFrame.frame.hidden = !(isActive && tab.mode === "direct");
   });
 
   const activeTab = getActiveTab();
-  const hasFrame = Boolean(activeTab?.frame);
+  const hasFrame = Boolean(activeTab?.frame || activeTab?.directFrame);
   $homePg.hidden = hasFrame;
   $frameHost.hidden = !hasFrame;
 
@@ -258,7 +382,9 @@ function createTab({ title = "New Tab", url = "", activate = true } = {}) {
     id: `tab-${++tabSequence}`,
     title,
     url,
+    mode: "proxied",
     frame: null,
+    directFrame: null,
     button: null,
     label: null,
   };
@@ -307,6 +433,7 @@ function closeTab(tabId) {
   const [tab] = tabs.splice(index, 1);
   tab.button?.remove();
   tab.frame?.frame?.remove();
+  tab.directFrame?.frame?.remove();
 
   if (activeTabId === tabId) {
     const nextTab = tabs[index] ?? tabs[index - 1] ?? tabs[0] ?? null;
@@ -320,11 +447,19 @@ function navigateTab(tab, rawUrl) {
   if (!tab) return;
 
   if (isBypassedUrl(rawUrl)) {
-    openBypassedUrl(rawUrl);
+    const frame = ensureDirectFrameForTab(tab);
+    tab.mode = "direct";
+    tab.url = rawUrl;
+    tab.title = formatTabLabel(rawUrl);
+    updateTabButton(tab);
+    showTab(tab.id);
+    pushAppLog("info", "Bypassing proxy for URL", { rawUrl });
+    frame.go(rawUrl);
     return;
   }
 
   const frame = ensureFrameForTab(tab);
+  tab.mode = "proxied";
   tab.url = rawUrl;
   tab.title = formatTabLabel(rawUrl);
   updateTabButton(tab);
@@ -341,7 +476,10 @@ function navigateTo(rawUrl) {
 }
 
 function activeFrame() {
-  return getActiveTab()?.frame ?? null;
+  const activeTab = getActiveTab();
+  return activeTab?.mode === "direct"
+    ? activeTab.directFrame
+    : activeTab?.frame ?? activeTab?.directFrame ?? null;
 }
 
 function pushAppLog(level, ...args) {
@@ -492,7 +630,7 @@ function showError(msg) {
   $error.hidden   = false;
   const text = typeof msg === "string" && msg.trim()
     ? msg
-    : "An unknown error occurred.";
+    : "JetVeil couldn't start the proxy backend.";
   document.getElementById("error-message").textContent = text;
 }
 
@@ -740,7 +878,7 @@ async function main() {
   $app.hidden     = false;
   pushAppLog("info", "UI ready");
 
-  updateLayoutMode();
+  updateBrowserTheme();
 
   if (!tabs.length) {
     createTab({ activate: true });
@@ -796,11 +934,10 @@ async function main() {
     browserPrefs = {
       ...browserPrefs,
       bypassHostsText: $bypassHostsInput.value,
-      openBypassedExternally: $openBypassedExternally.checked,
       compactToolbar: $compactToolbar.checked,
     };
     saveBrowserPrefs();
-    updateLayoutMode();
+    updateBrowserTheme();
     setBrowserPrefsOpen(false);
     syncToolbarState();
     pushAppLog("info", "Browser preferences saved");

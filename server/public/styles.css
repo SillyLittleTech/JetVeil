@@ -231,6 +231,22 @@ body.compact-toolbar .toolbar {
   transition: color 0.15s, background 0.15s;
 }
 
+.icon-btn .material-symbols-outlined,
+.browser-prefs-header button .material-symbols-outlined,
+.debug-panel-header button .material-symbols-outlined,
+.quick-icon.material-symbols-outlined {
+  font-size: 18px;
+  line-height: 1;
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+
+.debug-panel-header button,
+.browser-prefs-header button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .icon-btn:hover {
   color: var(--text);
   background: var(--surface-hi);
@@ -472,6 +488,52 @@ body.compact-toolbar .toolbar {
   color: var(--text);
   font-family: var(--font);
   font-size: 0.9rem;
+}
+
+.accent-presets {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: 8px;
+}
+
+.accent-preset {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-hi);
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, transform 0.15s;
+}
+
+.accent-preset:hover {
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.accent-preset.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+
+.accent-preset:active {
+  transform: scale(0.99);
+}
+
+.accent-preset-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.08);
+}
+
+.accent-preset-label {
+  font-size: 0.88rem;
+  font-weight: 600;
 }
 
 .prefs-switch {
