@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, dialog } from "electron";
+import { app, BrowserWindow, shell, dialog, Menu } from "electron";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -6,6 +6,19 @@ let mainWindow = null;
 let serverHandle = null;
 let isQuitting = false;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+async function shutdownLocalServer() {
+  if (!serverHandle) return;
+
+  const handle = serverHandle;
+  serverHandle = null;
+
+  try {
+    await handle.close();
+  } catch {
+    // Ignore close errors during shutdown; the goal is to release the port.
+  }
+}
 
 async function getServerApi() {
   const serverEntry = app.isPackaged
@@ -18,7 +31,7 @@ async function getServerApi() {
 async function bootLocalServer() {
   const { startJetVeilServer } = await getServerApi();
   serverHandle = await startJetVeilServer({
-    port: 0,
+    port: 54312,
     host: "127.0.0.1",
   });
 }
@@ -56,6 +69,24 @@ function createMainWindow() {
 }
 
 app.whenReady().then(async () => {
+  // Create application menu with quit handler
+  const template = [
+    {
+      label: "JetVeil",
+      submenu: [
+        {
+          label: "Quit JetVeil",
+          accelerator: "CmdOrCtrl+Q",
+          click: () => {
+            app.quit();
+          },
+        },
+      ],
+    },
+  ];
+
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+
   try {
     await bootLocalServer();
     createMainWindow();
@@ -79,18 +110,16 @@ app.on("before-quit", (event) => {
 
   event.preventDefault();
   isQuitting = true;
-  serverHandle
-    .close()
-    .catch(() => {
-      // Ignore close errors during app shutdown.
-    })
-    .finally(() => {
-      app.quit();
-    });
+  shutdownLocalServer().finally(() => {
+    app.quit();
+  });
 });
 
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
-    app.quit();
+  if (!isQuitting) {
+    isQuitting = true;
+    shutdownLocalServer().finally(() => {
+      app.quit();
+    });
   }
 });

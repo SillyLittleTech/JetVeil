@@ -14,6 +14,8 @@ import { createServer } from "node:http";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { dirname, join, normalize, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { Agent as HttpAgent } from "node:http";
+import { Agent as HttpsAgent } from "node:https";
 
 import { createBareServer } from "@tomphttp/bare-server-node";
 import { lookup as mimeLookup } from "mime-types";
@@ -58,7 +60,17 @@ addServerLog("info", "JetVeil server module loaded", {
 
 // ─── Bare server (HTTP proxy transport) ──────────────────────────────────────
 
-const bare = createBareServer("/bare/");
+const bare = createBareServer("/bare/", {
+  // The bare server default is only 10 keep-alive requests/IP per minute, which
+  // is too low for normal page navigations with many subrequests.
+  connectionLimiter: {
+    maxConnectionsPerIP: 1000,
+    windowDuration: 60,
+    blockDuration: 10,
+  },
+  httpAgent: new HttpAgent({ keepAlive: true, maxSockets: 256 }),
+  httpsAgent: new HttpsAgent({ keepAlive: true, maxSockets: 256 }),
+});
 
 // ─── Path helpers ─────────────────────────────────────────────────────────────
 
@@ -156,7 +168,7 @@ export default function handler(req, res) {
 
   // ── Bare proxy ─────────────────────────────────────────────────────────────
   if (bare.shouldRoute(req)) {
-    return bare.routeRequest(req, res);
+      return bare.routeRequest(req, res);
   }
 
   // ── Scramjet static files ──────────────────────────────────────────────────

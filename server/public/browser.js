@@ -23,16 +23,29 @@ const $debugToggleError = document.getElementById("debug-toggle-error");
 const $debugPanel = document.getElementById("debug-panel");
 const $debugClose = document.getElementById("debug-close");
 const $debugContent = document.getElementById("debug-content");
+const $debugPause = document.getElementById("debug-pause");
+const $debugCopy = document.getElementById("debug-copy");
 
 const appLogs = [];
 const MAX_APP_LOGS = 300;
 let serverLogs = [];
 let debugPanelOpen = false;
+let debugPanelPaused = false;
 let debugPollTimer = null;
 let scramFrame = null;
 
 const sjBootParams = new URLSearchParams(window.location.search);
 const sjRecoveryAttempted = sjBootParams.get("sj_recover") === "1";
+const sjSwBootAttempted = sjBootParams.get("sj_sw") === "1";
+
+const SCRAMJET_CONFIG = {
+  prefix: "/scramjet/",
+  files: {
+    wasm: "/scram/scramjet.wasm.wasm",
+    all: "/scram/scramjet.all.js",
+    sync: "/scram/scramjet.sync.js",
+  },
+};
 
 function serialiseLogArg(arg) {
   if (arg instanceof Error) {
@@ -109,6 +122,7 @@ function renderDebugPanel() {
     "",
     `URL: ${window.location.href}`,
     `Time: ${new Date().toISOString()}`,
+    `Status: ${debugPanelPaused ? "[PAUSED]" : "[LIVE]"}`,
     "",
     "--- App Logs (browser) ---",
     ...(appLogLines.length ? appLogLines : ["(none yet)"]),
@@ -121,6 +135,7 @@ function renderDebugPanel() {
 }
 
 async function refreshServerLogs() {
+  if (debugPanelPaused) return; // Don't fetch if paused
   try {
     const resp = await fetch("/__debug/logs", { cache: "no-store" });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
@@ -151,8 +166,40 @@ function setDebugPanelOpen(open) {
   btn?.addEventListener("click", () => setDebugPanelOpen(!debugPanelOpen));
 });
 $debugClose?.addEventListener("click", () => setDebugPanelOpen(false));
+$debugPause?.addEventListener("click", () => {
+  debugPanelPaused = !debugPanelPaused;
+  $debugPause.textContent = debugPanelPaused ? "▶ Resume" : "⏸ Pause";
+  if (!debugPanelPaused) {
+    renderDebugPanel();
+  }
+});
+$debugCopy?.addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText($debugContent.textContent);
+    const originalText = $debugCopy.textContent;
+    $debugCopy.textContent = "✓ Copied!";
+    setTimeout(() => {
+      $debugCopy.textContent = originalText;
+    }, 2000);
+  } catch (err) {
+    pushAppLog("error", "Failed to copy logs", err);
+  }
+});
 
 pushAppLog("info", "JetVeil browser runtime loaded");
+
+// Listen for service worker messages (fetch/error events)
+navigator.serviceWorker?.addEventListener("message", (event) => {
+  if (event.data.type === "sw-fetch") {
+    pushAppLog("debug", `[SW] Fetch ${event.data.method} ${event.data.url}`, {
+      isScramjetRoute: event.data.isScramjetRoute,
+      routeResult: event.data.routeResult,
+      isFrameRequest: event.data.isFrameRequest,
+    });
+  } else if (event.data.type === "sw-error") {
+    pushAppLog("warn", `[SW] Error handling ${event.data.url}`, event.data.error);
+  }
+});
 
 /** Show the error screen with a message. */
 function showError(msg) {
@@ -188,15 +235,10 @@ async function resetScramjetDb() {
   });
 }
 
-async function unregisterAllServiceWorkers() {
-  if (!("serviceWorker" in navigator)) return;
-  const registrations = await navigator.serviceWorker.getRegistrations();
-  await Promise.all(registrations.map((reg) => reg.unregister().catch(() => false)));
-}
-
 async function hardResetScramjetState() {
   pushAppLog("warn", "Performing hard Scramjet state reset");
-  await unregisterAllServiceWorkers();
+  // Keep Service Worker registration intact; removing it can break /scramjet/
+  // routing until a full controlled-page reload occurs.
   await resetScramjetDb();
 }
 
@@ -254,6 +296,12 @@ function reloadForScramjetRecovery() {
   window.location.replace(url.toString());
 }
 
+function reloadForServiceWorkerControl() {
+  const url = new URL(window.location.href);
+  url.searchParams.set("sj_sw", "1");
+  window.location.replace(url.toString());
+}
+
 async function main() {
   pushAppLog("info", "Starting initialization pipeline");
 
@@ -263,6 +311,7 @@ async function main() {
     const { BareMuxConnection } = await import("/baremux/index.mjs");
     const conn = new BareMuxConnection("/baremux/worker.js");
     const bareServerUrl = new URL("/bare/", window.location.origin).toString();
+
     // Use bare-as-module3 transport (served by this server) over /bare/
     await conn.setTransport("/transports/bare-as-module3/index.mjs", [bareServerUrl]);
     pushAppLog("info", "bare-mux transport configured", bareServerUrl);
@@ -285,6 +334,12 @@ async function main() {
       type: "module",
     });
 
+    try {
+      await navigator.serviceWorker.ready;
+    } catch {
+      // Ignore; we still run controller checks below.
+    }
+
     if (!navigator.serviceWorker.controller) {
       pushAppLog("warn", "No active service worker controller yet; waiting for controllerchange");
       await new Promise((resolve) => {
@@ -298,6 +353,15 @@ async function main() {
           { once: true }
         );
       });
+
+      if (!navigator.serviceWorker.controller) {
+        if (!sjSwBootAttempted) {
+          pushAppLog("warn", "Still not controlled by service worker; reloading once");
+          reloadForServiceWorkerControl();
+          return;
+        }
+        pushAppLog("warn", "Proceeding without active service worker controller");
+      }
     }
 
     const { ScramjetController } = await import("/scram/scramjet.bundle.js");
@@ -311,9 +375,11 @@ async function main() {
             return dbShim;
           }
         }
-        controller = new ScramjetControllerMemoryDb({ prefix: "/scramjet/" });
+        pushAppLog("debug", "Creating ScramjetController with memory DB", { config: SCRAMJET_CONFIG });
+        controller = new ScramjetControllerMemoryDb(SCRAMJET_CONFIG);
       } else {
-        controller = new ScramjetController({ prefix: "/scramjet/" });
+        pushAppLog("debug", "Creating ScramjetController with real DB", { config: SCRAMJET_CONFIG });
+        controller = new ScramjetController(SCRAMJET_CONFIG);
       }
 
       if (softTimeout) {
@@ -370,6 +436,15 @@ async function main() {
       }
     }
     pushAppLog("info", "Scramjet initialization succeeded");
+    
+    // Send config to service worker so it can handle proxied requests
+    if (navigator.serviceWorker.controller) {
+      pushAppLog("debug", "Sending Scramjet config to service worker");
+      navigator.serviceWorker.controller.postMessage({
+        type: "SCRAMJET_CONFIG",
+        payload: SCRAMJET_CONFIG,
+      });
+    }
   } catch (err) {
     pushAppLog("error", "Scramjet initialization failed", err);
     showError(`Scramjet init failed: ${err.message}`);
@@ -382,13 +457,70 @@ async function main() {
   pushAppLog("info", "UI ready");
 
   function navigateTo(url) {
+    pushAppLog("debug", "navigateTo called", { url, controllerExists: !!controller, frameExists: !!scramFrame?.frame });
+    
     if (!scramFrame) {
-      scramFrame = controller.createFrame();
-      $frameHost.appendChild(scramFrame.frame);
+      pushAppLog("debug", "Creating Scramjet frame", { controllerExists: !!controller });
+      try {
+        // Check if controller has createFrame method
+        if (!controller || typeof controller.createFrame !== 'function') {
+          pushAppLog("error", "Controller does not have createFrame method", { 
+            controllerType: typeof controller,
+            methods: Object.getOwnPropertyNames(Object.getPrototypeOf(controller || {}))
+          });
+          return;
+        }
+        
+        scramFrame = controller.createFrame();
+        pushAppLog("debug", "Frame created", { frameType: typeof scramFrame, frameKeys: Object.keys(scramFrame || {}) });
+        
+        if (!scramFrame || !scramFrame.frame) {
+          pushAppLog("error", "Frame creation resulted in null or invalid frame", { scramFrame });
+          return;
+        }
+        
+        // Add event listeners to track frame behavior
+        if (scramFrame.frame && scramFrame.frame.tagName === "IFRAME") {
+          scramFrame.frame.addEventListener("load", () => {
+            pushAppLog("debug", "Frame load event fired", { src: scramFrame.frame.src });
+          });
+          scramFrame.frame.addEventListener("error", (err) => {
+            pushAppLog("error", "Frame error event fired", { error: String(err) });
+          });
+          pushAppLog("debug", "Frame event listeners added");
+        }
+        
+        $frameHost.appendChild(scramFrame.frame);
+        pushAppLog("debug", "Frame appended to DOM", { frameHostChildren: $frameHost.children.length, tagName: scramFrame.frame.tagName });
+      } catch (err) {
+        pushAppLog("error", "Failed to create frame", { error: String(err), stack: err.stack });
+        return;
+      }
     }
+    
     $homePg.hidden = true;
     $frameHost.hidden = false;
-    scramFrame.go(url);
+    
+    pushAppLog("info", "navigateTo -> go", url);
+    try {
+      if (typeof scramFrame.go !== 'function') {
+        pushAppLog("error", "Frame does not have go method", { frameKeys: Object.keys(scramFrame) });
+        return;
+      }
+      
+      // Call go() and track result
+      const result = scramFrame.go(url);
+      pushAppLog("debug", "Frame navigation initiated", { url, returnType: typeof result });
+      
+      // If result is a promise, wait for it
+      if (result && typeof result.catch === 'function') {
+        result.catch(err => {
+          pushAppLog("error", "Frame navigation promise rejected", { error: String(err) });
+        });
+      }
+    } catch (err) {
+      pushAppLog("error", "Frame navigation failed", { error: String(err), stack: err.stack });
+    }
   }
 
   // ── 4. Handle ?url= from Flutter app ─────────────────────────────────────

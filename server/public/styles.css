@@ -256,6 +256,11 @@ html, body {
   color: var(--accent);
 }
 
+.debug-controls {
+  display: flex;
+  gap: 6px;
+}
+
 .debug-panel-header button {
   padding: 6px 10px;
   border-radius: var(--radius-sm);
@@ -263,6 +268,17 @@ html, body {
   background: var(--surface-hi);
   color: var(--text);
   cursor: pointer;
+  font-size: 0.85rem;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.debug-panel-header button:hover {
+  background: var(--surface);
+  border-color: var(--accent);
+}
+
+.debug-panel-header button:active {
+  transform: scale(0.98);
 }
 
 .debug-note {

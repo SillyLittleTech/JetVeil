@@ -154,7 +154,11 @@
   <section id="debug-panel" hidden>
     <div class="debug-panel-header">
       <h3>Advanced Debugging Info</h3>
-      <button id="debug-close" type="button">Close</button>
+      <div class="debug-controls">
+        <button id="debug-pause" type="button" title="Pause log updates">⏸ Pause</button>
+        <button id="debug-copy" type="button" title="Copy all logs to clipboard">📋 Copy</button>
+        <button id="debug-close" type="button" title="Close debug panel">✕</button>
+      </div>
     </div>
     <p class="debug-note">Includes recent browser logs and server logs.</p>
     <pre id="debug-content">No debug data yet.</pre>
