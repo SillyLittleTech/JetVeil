@@ -28,6 +28,7 @@ import { createRequire } from "node:module";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const publicPath = resolve(join(__dirname, "../public"));
+const assetsPath = appAssetsPath();
 const scramjetBase = resolve(scramjetPath);
 const baremuxBase  = resolve(baremuxPath);
 const require = createRequire(import.meta.url);
@@ -35,6 +36,19 @@ const bareAsModule3Entrypoint = require.resolve("@mercuryworkshop/bare-as-module
 const bareAsModule3Base = resolve(
   join(dirname(bareAsModule3Entrypoint), "../dist")
 );
+
+function appAssetsPath() {
+  if (process.env.VERCEL) {
+    return resolve(join(__dirname, "../../assets"));
+  }
+
+  const packagedAssets = resolve(join(process.resourcesPath, "assets"));
+  if (existsSync(packagedAssets)) {
+    return packagedAssets;
+  }
+
+  return resolve(join(__dirname, "../../assets"));
+}
 
 // ─── In-memory debug logs ───────────────────────────────────────────────────
 
@@ -139,12 +153,18 @@ function serveFile(res, filePath) {
  * @param {import("node:http").ServerResponse} res
  */
 export default function handler(req, res) {
-  // Security headers required for Scramjet's SharedArrayBuffer usage
-  res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
-  res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
-
   const rawUrl = req.url ?? "/";
   const url = rawUrl.split("?")[0]; // strip query string for routing
+  const isBareRoute = bare.shouldRoute(req);
+
+  // Security headers required for Scramjet's SharedArrayBuffer usage on the
+  // JetVeil app shell, but avoid forcing them onto proxied site responses.
+  // Sites like Google reCAPTCHA can break when COOP/COEP is applied to the
+  // proxied destination page.
+  if (!isBareRoute) {
+    res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+    res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
+  }
 
   addServerLog("request", "HTTP request", {
     method: req.method,
@@ -167,7 +187,7 @@ export default function handler(req, res) {
   }
 
   // ── Bare proxy ─────────────────────────────────────────────────────────────
-  if (bare.shouldRoute(req)) {
+  if (isBareRoute) {
       return bare.routeRequest(req, res);
   }
 
@@ -187,6 +207,12 @@ export default function handler(req, res) {
   if (url.startsWith("/transports/bare-as-module3/")) {
     const rel = url.slice("/transports/bare-as-module3/".length);
     return serveFile(res, safeJoin(bareAsModule3Base, rel));
+  }
+
+  // ── Packaged artwork / icons ─────────────────────────────────────────────
+  if (url.startsWith("/assets/")) {
+    const rel = url.slice("/assets/".length);
+    return serveFile(res, safeJoin(assetsPath, rel));
   }
 
   // ── Public UI (JetVeil frontend) ───────────────────────────────────────────

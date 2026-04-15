@@ -134,6 +134,11 @@ html, body {
   flex-shrink: 0;
 }
 
+body.compact-toolbar .toolbar {
+  padding: 8px 12px;
+  gap: 8px;
+}
+
 .brand {
   display: flex;
   align-items: center;
@@ -146,6 +151,12 @@ html, body {
   font-size: 0.95rem;
   color: var(--accent);
   letter-spacing: -0.3px;
+}
+
+.nav-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
 }
 
 /* ── URL bar ─────────────────────────────────────────────────────────────────── */
@@ -224,6 +235,65 @@ html, body {
   color: var(--text);
   background: var(--surface-hi);
   border-color: var(--border);
+}
+
+.icon-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+#tab-strip {
+  display: flex;
+  gap: 8px;
+  padding: 8px 14px 0;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+
+.tab-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 220px;
+  padding: 8px 12px;
+  background: var(--surface-hi);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 12px 12px 0 0;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.tab-chip.active {
+  color: var(--text);
+  background: #10101b;
+  border-color: var(--accent);
+}
+
+.tab-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tab-chip-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  font-size: 0.95rem;
+  line-height: 1;
+  color: var(--text-muted);
+}
+
+.tab-chip:hover .tab-chip-close {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.05);
 }
 
 /* ── Debug panel ───────────────────────────────────────────────────────────── */
@@ -317,6 +387,7 @@ html, body {
   flex: 1;
   min-height: 0;
   background: #000;
+  position: relative;
 }
 
 #frame-host iframe {
@@ -324,6 +395,108 @@ html, body {
   height: 100%;
   border: 0;
   display: block;
+}
+
+.scramjet-frame {
+  position: absolute;
+  inset: 0;
+}
+
+#browser-prefs-panel {
+  position: fixed;
+  top: 76px;
+  right: 16px;
+  width: min(460px, calc(100vw - 32px));
+  max-height: calc(100vh - 100px);
+  overflow: auto;
+  background: #0b0b14;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+  z-index: 9998;
+  padding: 12px;
+}
+
+.browser-prefs-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.browser-prefs-header h3 {
+  font-size: 0.95rem;
+  color: var(--accent);
+}
+
+.browser-prefs-header button {
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-hi);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.browser-prefs-form {
+  display: grid;
+  gap: 14px;
+}
+
+.prefs-field,
+.prefs-switch {
+  display: grid;
+  gap: 8px;
+}
+
+.prefs-field span,
+.prefs-switch strong {
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.prefs-field small,
+.prefs-switch small {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.prefs-field textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 120px;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-hi);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 0.9rem;
+}
+
+.prefs-switch {
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.browser-prefs-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.browser-prefs-actions .primary {
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #001018;
+  font-weight: 700;
+  cursor: pointer;
 }
 
 .home-hero {
@@ -397,4 +570,6 @@ html, body {
 @media (max-width: 600px) {
   .brand-name { display: none; }
   .toolbar    { gap: 8px; padding: 8px 12px; }
+  #tab-strip  { padding-inline: 10px; }
+  #browser-prefs-panel { top: 70px; left: 10px; right: 10px; width: auto; }
 }

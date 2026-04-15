@@ -42,6 +42,13 @@
     ],
     "extraResources": [
       {
+        "from": "../assets",
+        "to": "assets",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
         "from": "../server",
         "to": "server",
         "filter": [
@@ -52,6 +59,7 @@
         ]
       }
     ],
+    "icon": "../assets/jetveiliconDefault-1024x1024@1x.png",
     "asar": true
   }
 }

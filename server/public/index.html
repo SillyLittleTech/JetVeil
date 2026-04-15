@@ -11,7 +11,7 @@
   <meta http-equiv="origin-trial" content="">
 
   <title>JetVeil</title>
-  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="icon" type="image/png" href="/assets/jetveiliconDefault-1024x1024@1x.png">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -60,6 +60,18 @@
         <span class="brand-name">JetVeil</span>
       </div>
 
+      <div class="nav-actions">
+        <button class="icon-btn" id="nav-back" title="Back" aria-label="Back">
+          ←
+        </button>
+        <button class="icon-btn" id="nav-forward" title="Forward" aria-label="Forward">
+          →
+        </button>
+        <button class="icon-btn" id="nav-reload" title="Reload" aria-label="Reload">
+          ↻
+        </button>
+      </div>
+
       <form id="url-form" class="url-form" autocomplete="off">
         <div class="url-bar">
           <svg class="url-icon" width="16" height="16" viewBox="0 0 24 24"
@@ -88,6 +100,15 @@
       </form>
 
       <div class="toolbar-actions">
+        <button class="icon-btn" id="nav-new-tab" title="New tab" aria-label="New tab">
+          ＋
+        </button>
+        <button class="icon-btn" id="nav-close-tab" title="Close tab" aria-label="Close tab">
+          ✕
+        </button>
+        <button class="icon-btn" id="nav-settings" title="Browser settings" aria-label="Browser settings">
+          ⚙
+        </button>
         <button class="icon-btn" id="debug-btn" title="Advanced Debugging Info" aria-label="Advanced Debugging Info">
           🧪
         </button>
@@ -101,6 +122,8 @@
         </button>
       </div>
     </header>
+
+    <div id="tab-strip" aria-label="Browser tabs"></div>
 
     <!-- Home / new-tab page (visible when no URL is loaded) -->
     <main id="home-page">
@@ -150,6 +173,44 @@
 
     <section id="frame-host" hidden></section>
   </div>
+
+  <section id="browser-prefs-panel" hidden>
+    <div class="browser-prefs-header">
+      <h3>Browser Settings</h3>
+      <button id="browser-prefs-close" type="button" title="Close browser settings">✕</button>
+    </div>
+    <form id="browser-prefs-form" class="browser-prefs-form">
+      <label class="prefs-field">
+        <span>Bypass hosts</span>
+        <textarea
+          id="bypass-hosts"
+          rows="5"
+          placeholder="google.com\n*.google.com\nrecaptcha.net\ngstatic.com"
+        ></textarea>
+        <small>One host per line or comma-separated. Matching hosts open outside the proxy.</small>
+      </label>
+
+      <label class="prefs-switch">
+        <input id="open-bypassed-externally" type="checkbox">
+        <span>
+          <strong>Open bypassed sites externally</strong>
+          <small>Launch matched sites in the browser instead of the proxy.</small>
+        </span>
+      </label>
+
+      <label class="prefs-switch">
+        <input id="compact-toolbar" type="checkbox">
+        <span>
+          <strong>Compact toolbar</strong>
+          <small>Use a tighter browser chrome layout.</small>
+        </span>
+      </label>
+
+      <div class="browser-prefs-actions">
+        <button type="submit" class="primary">Save browser settings</button>
+      </div>
+    </form>
+  </section>
 
   <section id="debug-panel" hidden>
     <div class="debug-panel-header">

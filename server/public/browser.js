@@ -17,6 +17,13 @@ const $input   = document.getElementById("url-input");
 const $home    = document.getElementById("home-btn");
 const $homePg  = document.getElementById("home-page");
 const $frameHost = document.getElementById("frame-host");
+const $tabStrip = document.getElementById("tab-strip");
+const $navBack = document.getElementById("nav-back");
+const $navForward = document.getElementById("nav-forward");
+const $navReload = document.getElementById("nav-reload");
+const $navNewTab = document.getElementById("nav-new-tab");
+const $navCloseTab = document.getElementById("nav-close-tab");
+const $navSettings = document.getElementById("nav-settings");
 const $debugBtn = document.getElementById("debug-btn");
 const $debugToggle = document.getElementById("debug-toggle");
 const $debugToggleError = document.getElementById("debug-toggle-error");
@@ -25,6 +32,12 @@ const $debugClose = document.getElementById("debug-close");
 const $debugContent = document.getElementById("debug-content");
 const $debugPause = document.getElementById("debug-pause");
 const $debugCopy = document.getElementById("debug-copy");
+const $browserPrefsPanel = document.getElementById("browser-prefs-panel");
+const $browserPrefsClose = document.getElementById("browser-prefs-close");
+const $browserPrefsForm = document.getElementById("browser-prefs-form");
+const $bypassHostsInput = document.getElementById("bypass-hosts");
+const $openBypassedExternally = document.getElementById("open-bypassed-externally");
+const $compactToolbar = document.getElementById("compact-toolbar");
 
 const appLogs = [];
 const MAX_APP_LOGS = 300;
@@ -32,7 +45,6 @@ let serverLogs = [];
 let debugPanelOpen = false;
 let debugPanelPaused = false;
 let debugPollTimer = null;
-let scramFrame = null;
 
 const sjBootParams = new URLSearchParams(window.location.search);
 const sjRecoveryAttempted = sjBootParams.get("sj_recover") === "1";
@@ -47,6 +59,21 @@ const SCRAMJET_CONFIG = {
   },
 };
 
+const BROWSER_PREFS_KEY = "jetveil-browser-prefs";
+
+const DEFAULT_BROWSER_PREFS = {
+  bypassHostsText: "",
+  openBypassedExternally: true,
+  compactToolbar: false,
+};
+
+let browserPrefs = loadBrowserPrefs();
+let browserPrefsOpen = false;
+let tabs = [];
+let activeTabId = null;
+let tabSequence = 0;
+let controller = null;
+
 function serialiseLogArg(arg) {
   if (arg instanceof Error) {
     return `${arg.name}: ${arg.message}${arg.stack ? `\n${arg.stack}` : ""}`;
@@ -57,6 +84,264 @@ function serialiseLogArg(arg) {
   } catch {
     return String(arg);
   }
+}
+
+function loadBrowserPrefs() {
+  try {
+    const raw = localStorage.getItem(BROWSER_PREFS_KEY);
+    if (!raw) return { ...DEFAULT_BROWSER_PREFS };
+    const parsed = JSON.parse(raw);
+    return {
+      ...DEFAULT_BROWSER_PREFS,
+      ...parsed,
+      bypassHostsText: String(parsed?.bypassHostsText ?? ""),
+      openBypassedExternally: Boolean(parsed?.openBypassedExternally ?? true),
+      compactToolbar: Boolean(parsed?.compactToolbar ?? false),
+    };
+  } catch {
+    return { ...DEFAULT_BROWSER_PREFS };
+  }
+}
+
+function saveBrowserPrefs() {
+  try {
+    localStorage.setItem(BROWSER_PREFS_KEY, JSON.stringify(browserPrefs));
+  } catch {
+    // Ignore storage failures; preferences are best-effort.
+  }
+}
+
+function getBypassRules() {
+  return browserPrefs.bypassHostsText
+    .split(/[\n,]+/)
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean)
+    .map((entry) => entry.replace(/^https?:\/\//, "").split("/")[0]);
+}
+
+function isBypassedUrl(rawUrl) {
+  let url;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return false;
+  }
+
+  const host = url.hostname.toLowerCase();
+  return getBypassRules().some((rule) => {
+    if (rule.startsWith("*.")) {
+      const suffix = rule.slice(1);
+      return host === rule.slice(2) || host.endsWith(suffix);
+    }
+    return host === rule || host.endsWith(`.${rule}`);
+  });
+}
+
+function formatTabLabel(rawUrl) {
+  if (!rawUrl) return "New Tab";
+  try {
+    const url = new URL(rawUrl);
+    return url.hostname || rawUrl;
+  } catch {
+    return rawUrl;
+  }
+}
+
+function openBypassedUrl(rawUrl) {
+  pushAppLog("info", "Bypassing proxy for URL", { rawUrl });
+  if (browserPrefs.openBypassedExternally) {
+    const opened = window.open(rawUrl, "_blank", "noopener,noreferrer");
+    if (!opened) {
+      pushAppLog("warn", "Popup blocked while opening bypassed URL", { rawUrl });
+    }
+    return;
+  }
+
+  window.location.assign(rawUrl);
+}
+
+function getActiveTab() {
+  return tabs.find((tab) => tab.id === activeTabId) ?? null;
+}
+
+function syncToolbarState() {
+  const activeTab = getActiveTab();
+  const hasFrame = Boolean(activeTab?.frame);
+
+  if ($navBack) $navBack.disabled = !hasFrame;
+  if ($navForward) $navForward.disabled = !hasFrame;
+  if ($navReload) $navReload.disabled = !hasFrame;
+  if ($navCloseTab) $navCloseTab.disabled = tabs.length <= 1;
+
+  if ($input && activeTab?.url && document.activeElement !== $input) {
+    $input.value = activeTab.url;
+  }
+}
+
+function updateLayoutMode() {
+  document.body.classList.toggle("compact-toolbar", browserPrefs.compactToolbar);
+}
+
+function setBrowserPrefsOpen(open) {
+  browserPrefsOpen = open;
+  if ($browserPrefsPanel) $browserPrefsPanel.hidden = !open;
+  if (open) {
+    $bypassHostsInput.value = browserPrefs.bypassHostsText;
+    $openBypassedExternally.checked = browserPrefs.openBypassedExternally;
+    $compactToolbar.checked = browserPrefs.compactToolbar;
+  }
+}
+
+function updateTabButton(tab) {
+  if (!tab.button) return;
+  tab.button.classList.toggle("active", tab.id === activeTabId);
+  tab.label.textContent = tab.title || formatTabLabel(tab.url);
+  tab.button.title = tab.url || "New tab";
+}
+
+function updateAllTabButtons() {
+  tabs.forEach(updateTabButton);
+}
+
+function ensureFrameForTab(tab) {
+  if (tab.frame) return tab.frame;
+
+  const frame = controller.createFrame();
+  frame.frame.hidden = true;
+  frame.frame.classList.add("scramjet-frame");
+
+  frame.addEventListener("navigate", (event) => {
+    tab.url = event.url;
+    tab.title = formatTabLabel(event.url);
+    updateTabButton(tab);
+    syncToolbarState();
+  });
+
+  frame.addEventListener("urlchange", (event) => {
+    tab.url = event.url;
+    tab.title = formatTabLabel(event.url);
+    updateTabButton(tab);
+    syncToolbarState();
+  });
+
+  tab.frame = frame;
+  $frameHost.appendChild(frame.frame);
+  return frame;
+}
+
+function showTab(tabId) {
+  activeTabId = tabId;
+
+  tabs.forEach((tab) => {
+    if (tab.frame?.frame) {
+      tab.frame.frame.hidden = tab.id !== tabId;
+    }
+  });
+
+  const activeTab = getActiveTab();
+  const hasFrame = Boolean(activeTab?.frame);
+  $homePg.hidden = hasFrame;
+  $frameHost.hidden = !hasFrame;
+
+  if (activeTab?.url) {
+    $input.value = activeTab.url;
+  } else {
+    $input.value = "";
+  }
+
+  updateAllTabButtons();
+  syncToolbarState();
+}
+
+function createTab({ title = "New Tab", url = "", activate = true } = {}) {
+  const tab = {
+    id: `tab-${++tabSequence}`,
+    title,
+    url,
+    frame: null,
+    button: null,
+    label: null,
+  };
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "tab-chip";
+
+  const label = document.createElement("span");
+  label.className = "tab-chip-label";
+  label.textContent = title;
+
+  const close = document.createElement("span");
+  close.className = "tab-chip-close";
+  close.textContent = "×";
+  close.setAttribute("aria-hidden", "true");
+
+  button.append(label, close);
+  button.addEventListener("click", () => showTab(tab.id));
+  close.addEventListener("click", (event) => {
+    event.stopPropagation();
+    closeTab(tab.id);
+  });
+
+  tab.button = button;
+  tab.label = label;
+  tabs.push(tab);
+  $tabStrip.appendChild(button);
+  updateTabButton(tab);
+
+  if (activate) showTab(tab.id);
+
+  if (url) {
+    navigateTab(tab, url);
+  }
+
+  return tab;
+}
+
+function closeTab(tabId) {
+  if (tabs.length <= 1) return;
+
+  const index = tabs.findIndex((tab) => tab.id === tabId);
+  if (index === -1) return;
+
+  const [tab] = tabs.splice(index, 1);
+  tab.button?.remove();
+  tab.frame?.frame?.remove();
+
+  if (activeTabId === tabId) {
+    const nextTab = tabs[index] ?? tabs[index - 1] ?? tabs[0] ?? null;
+    if (nextTab) showTab(nextTab.id);
+  } else {
+    syncToolbarState();
+  }
+}
+
+function navigateTab(tab, rawUrl) {
+  if (!tab) return;
+
+  if (isBypassedUrl(rawUrl)) {
+    openBypassedUrl(rawUrl);
+    return;
+  }
+
+  const frame = ensureFrameForTab(tab);
+  tab.url = rawUrl;
+  tab.title = formatTabLabel(rawUrl);
+  updateTabButton(tab);
+  showTab(tab.id);
+  frame.go(rawUrl);
+}
+
+function navigateTo(rawUrl) {
+  let tab = getActiveTab();
+  if (!tab) {
+    tab = createTab({ activate: true });
+  }
+  navigateTab(tab, rawUrl);
+}
+
+function activeFrame() {
+  return getActiveTab()?.frame ?? null;
 }
 
 function pushAppLog(level, ...args) {
@@ -322,7 +607,6 @@ async function main() {
   }
 
   // ── 2. Initialise Scramjet ────────────────────────────────────────────────
-  let controller;
   try {
     pushAppLog("info", "Initializing Scramjet controller");
     if (!("serviceWorker" in navigator)) {
@@ -456,71 +740,12 @@ async function main() {
   $app.hidden     = false;
   pushAppLog("info", "UI ready");
 
-  function navigateTo(url) {
-    pushAppLog("debug", "navigateTo called", { url, controllerExists: !!controller, frameExists: !!scramFrame?.frame });
-    
-    if (!scramFrame) {
-      pushAppLog("debug", "Creating Scramjet frame", { controllerExists: !!controller });
-      try {
-        // Check if controller has createFrame method
-        if (!controller || typeof controller.createFrame !== 'function') {
-          pushAppLog("error", "Controller does not have createFrame method", { 
-            controllerType: typeof controller,
-            methods: Object.getOwnPropertyNames(Object.getPrototypeOf(controller || {}))
-          });
-          return;
-        }
-        
-        scramFrame = controller.createFrame();
-        pushAppLog("debug", "Frame created", { frameType: typeof scramFrame, frameKeys: Object.keys(scramFrame || {}) });
-        
-        if (!scramFrame || !scramFrame.frame) {
-          pushAppLog("error", "Frame creation resulted in null or invalid frame", { scramFrame });
-          return;
-        }
-        
-        // Add event listeners to track frame behavior
-        if (scramFrame.frame && scramFrame.frame.tagName === "IFRAME") {
-          scramFrame.frame.addEventListener("load", () => {
-            pushAppLog("debug", "Frame load event fired", { src: scramFrame.frame.src });
-          });
-          scramFrame.frame.addEventListener("error", (err) => {
-            pushAppLog("error", "Frame error event fired", { error: String(err) });
-          });
-          pushAppLog("debug", "Frame event listeners added");
-        }
-        
-        $frameHost.appendChild(scramFrame.frame);
-        pushAppLog("debug", "Frame appended to DOM", { frameHostChildren: $frameHost.children.length, tagName: scramFrame.frame.tagName });
-      } catch (err) {
-        pushAppLog("error", "Failed to create frame", { error: String(err), stack: err.stack });
-        return;
-      }
-    }
-    
-    $homePg.hidden = true;
-    $frameHost.hidden = false;
-    
-    pushAppLog("info", "navigateTo -> go", url);
-    try {
-      if (typeof scramFrame.go !== 'function') {
-        pushAppLog("error", "Frame does not have go method", { frameKeys: Object.keys(scramFrame) });
-        return;
-      }
-      
-      // Call go() and track result
-      const result = scramFrame.go(url);
-      pushAppLog("debug", "Frame navigation initiated", { url, returnType: typeof result });
-      
-      // If result is a promise, wait for it
-      if (result && typeof result.catch === 'function') {
-        result.catch(err => {
-          pushAppLog("error", "Frame navigation promise rejected", { error: String(err) });
-        });
-      }
-    } catch (err) {
-      pushAppLog("error", "Frame navigation failed", { error: String(err), stack: err.stack });
-    }
+  updateLayoutMode();
+
+  if (!tabs.length) {
+    createTab({ activate: true });
+  } else if (activeTabId) {
+    showTab(activeTabId);
   }
 
   // ── 4. Handle ?url= from Flutter app ─────────────────────────────────────
@@ -553,12 +778,52 @@ async function main() {
     });
   });
 
-  // Home button — navigate back to the JetVeil new-tab page
+  // Browser controls
+  $navBack?.addEventListener("click", () => activeFrame()?.back());
+  $navForward?.addEventListener("click", () => activeFrame()?.forward());
+  $navReload?.addEventListener("click", () => activeFrame()?.reload());
+  $navNewTab?.addEventListener("click", () => createTab({ activate: true }));
+  $navCloseTab?.addEventListener("click", () => closeTab(activeTabId));
+  $navSettings?.addEventListener("click", () => setBrowserPrefsOpen(!browserPrefsOpen));
+
   $home.addEventListener("click", () => {
-    history.pushState(null, "", "/");
-    $input.value   = "";
-    $homePg.hidden = false;
-    $frameHost.hidden = true;
+    createTab({ activate: true });
+  });
+
+  $browserPrefsClose?.addEventListener("click", () => setBrowserPrefsOpen(false));
+  $browserPrefsForm?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    browserPrefs = {
+      ...browserPrefs,
+      bypassHostsText: $bypassHostsInput.value,
+      openBypassedExternally: $openBypassedExternally.checked,
+      compactToolbar: $compactToolbar.checked,
+    };
+    saveBrowserPrefs();
+    updateLayoutMode();
+    setBrowserPrefsOpen(false);
+    syncToolbarState();
+    pushAppLog("info", "Browser preferences saved");
+  });
+
+  window.addEventListener("keydown", (event) => {
+    if (!event.ctrlKey && !event.metaKey) return;
+
+    const key = event.key.toLowerCase();
+    if (key === "l") {
+      event.preventDefault();
+      $input.focus();
+      $input.select();
+    } else if (key === "t") {
+      event.preventDefault();
+      createTab({ activate: true });
+    } else if (key === "w") {
+      event.preventDefault();
+      closeTab(activeTabId);
+    } else if (key === "r") {
+      event.preventDefault();
+      activeFrame()?.reload();
+    }
   });
 }
 
