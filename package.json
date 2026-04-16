@@ -4,7 +4,7 @@
   "private": true,
   "description": "JetVeil multiplatform desktop web wrapper with local ScramJet proxy.",
   "scripts": {
-    "install:all": "npm --prefix server ci && npm --prefix desktop ci",
+    "install:all": "npm --prefix server ci --ignore-scripts && npm --prefix desktop ci",
     "dev": "node scripts/run-package-command.mjs desktop dev",
     "dev:headless": "node scripts/run-package-command.mjs desktop dev:headless",
     "pack": "node scripts/run-package-command.mjs desktop pack",

@@ -13,11 +13,12 @@ if (!packageFolder || !command) {
 }
 
 const packageDir = resolve(rootDir, packageFolder);
-const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+const npmCommand = "npm";
 
 function run(commandName, args, cwd) {
   const result = spawnSync(commandName, args, {
     cwd,
+    shell: process.platform === "win32",
     stdio: "inherit",
   });
 
@@ -30,10 +31,23 @@ function run(commandName, args, cwd) {
   }
 }
 
-function ensureDependencies() {
-  const nodeModulesPath = resolve(packageDir, "node_modules");
+function installDependencies(folder, args = ["ci"]) {
+  const targetDir = resolve(rootDir, folder);
+  const nodeModulesPath = resolve(targetDir, "node_modules");
   if (existsSync(nodeModulesPath)) return;
-  run(npmCommand, ["ci"], packageDir);
+
+  run(npmCommand, args, targetDir);
+}
+
+function ensureDependencies() {
+  // Desktop builds bundle the local server runtime, so make sure its
+  // dependencies exist before packaging. Scramjet's install hook currently
+  // rejects npm, so we skip package scripts for the server install.
+  if (packageFolder === "desktop") {
+    installDependencies("server", ["ci", "--ignore-scripts"]);
+  }
+
+  installDependencies(packageFolder);
 }
 
 ensureDependencies();
