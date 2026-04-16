@@ -124,6 +124,7 @@ jobs:
           name: macos-build-pre
           path: |
             desktop/dist/*-mac.zip
+            desktop/dist/*.dmg
             desktop/dist/latest-mac.yml
           if-no-files-found: error
           retention-days: 7

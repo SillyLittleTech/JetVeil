@@ -12,7 +12,7 @@
 
 import { createServer } from "node:http";
 import { createReadStream, existsSync, statSync } from "node:fs";
-import { dirname, join, normalize, resolve } from "node:path";
+import { dirname, isAbsolute, join, normalize, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Agent as HttpAgent } from "node:http";
 import { Agent as HttpsAgent } from "node:https";
@@ -110,8 +110,14 @@ function safeJoin(base, rel) {
   // Normalise to remove ".." sequences
   const normalised = normalize(decoded).replace(/^(\.\.(\/|\\|$))+/, "");
   const full = resolve(join(base, normalised));
-  // Reject if the resolved path escapes the base directory
-  if (!full.startsWith(base + "/") && full !== base) return null;
+
+  // Reject absolute user-supplied paths and anything that escapes the base
+  // directory. `relative()` keeps this portable across POSIX and Windows.
+  if (isAbsolute(normalised)) return null;
+
+  const relFromBase = relative(base, full);
+  if (relFromBase.startsWith("..") || isAbsolute(relFromBase)) return null;
+
   return full;
 }
 
@@ -313,4 +319,3 @@ if (!process.env.VERCEL && isDirectRun) {
       process.exit(1);
     });
 }
-
