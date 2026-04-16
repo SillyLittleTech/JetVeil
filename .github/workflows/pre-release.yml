@@ -37,7 +37,7 @@ jobs:
       - name: Check if pre-release tag already exists
         id: check
         run: |
-          TAG="v$(node -p \"require('./package.json').version\")-pre"
+          TAG="v${{ steps.ver.outputs.version }}-pre"
           if git ls-remote --tags origin "refs/tags/${TAG}" | grep -q "${TAG}"; then
             echo "exists=true"  >> "$GITHUB_OUTPUT"
             echo "::notice::Pre-release ${TAG} already exists — skipping build."
@@ -59,6 +59,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+
+      - name: Install dependencies
+        run: npm run install:all
 
       - name: Build Linux artifacts
         run: npm run build:linux
@@ -88,6 +91,9 @@ jobs:
         with:
           node-version: 20
 
+      - name: Install dependencies
+        run: npm run install:all
+
       - name: Build Windows artifacts
         run: npm run build:windows
 
@@ -115,6 +121,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+
+      - name: Install dependencies
+        run: npm run install:all
 
       - name: Build macOS artifacts
         run: npm run build:mac

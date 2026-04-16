@@ -42,6 +42,9 @@ jobs:
         with:
           node-version: 20
 
+      - name: Install dependencies
+        run: npm run install:all
+
       - name: Build Linux artifacts
         run: npm run build:linux
 
@@ -67,6 +70,9 @@ jobs:
         with:
           node-version: 20
 
+      - name: Install dependencies
+        run: npm run install:all
+
       - name: Build Windows artifacts
         run: npm run build:windows
 
@@ -91,6 +97,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+
+      - name: Install dependencies
+        run: npm run install:all
 
       - name: Build macOS artifacts
         run: npm run build:mac
