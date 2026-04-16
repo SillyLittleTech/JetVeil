@@ -2,7 +2,10 @@
   "name": "jetveil-desktop",
   "version": "1.6.4",
   "private": true,
-  "author": "SillyLittleTech",
+  "author": {
+    "name": "SillyLittleTech",
+    "email": "SillyLittleTech@users.noreply.github.com"
+  },
   "description": "JetVeil desktop wrapper that hosts a local ScramJet proxy server.",
   "repository": {
     "type": "git",
@@ -28,6 +31,9 @@
   "build": {
     "appId": "tech.sillylittle.jetveil",
     "productName": "JetVeil",
+    "linux": {
+      "maintainer": "SillyLittleTech <SillyLittleTech@users.noreply.github.com>"
+    },
     "publish": {
       "provider": "github",
       "owner": "SillyLittleTech",
