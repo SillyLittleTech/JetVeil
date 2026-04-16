@@ -1,6 +1,6 @@
 {
   "name": "jetveil-desktop",
-  "version": "1.6.3",
+  "version": "1.6.4",
   "private": true,
   "author": "SillyLittleTech",
   "description": "JetVeil desktop wrapper that hosts a local ScramJet proxy server.",
