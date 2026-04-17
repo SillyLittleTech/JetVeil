@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta
+    name="description"
+    content="JetVeil is a desktop-first web wrapper that runs a local Scramjet proxy server on your device."
+  >
+  <meta name="theme-color" content="#0d0d17">
+  <title>JetVeil Docs</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="site-shell">
+    <header class="hero">
+      <nav class="topbar" aria-label="Primary">
+        <a class="brand" href="#top" aria-label="JetVeil home">
+          <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 2L4 6V12C4 16.418 7.582 20.472 12 22C16.418 20.472 20 16.418 20 12V6L12 2Z"></path>
+          </svg>
+          <span>JetVeil</span>
+        </a>
+        <div class="topbar-links">
+          <a href="#capabilities">Capabilities</a>
+          <a href="#architecture">Architecture</a>
+          <a href="https://github.com/SillyLittleTech/JetVeil" target="_blank" rel="noopener noreferrer">GitHub</a>
+        </div>
+      </nav>
+
+      <section class="hero-content" id="top">
+        <div class="hero-copy">
+          <p class="eyebrow">Desktop-first privacy tooling</p>
+          <h1>JetVeil keeps the proxy local and the experience fast.</h1>
+          <p class="hero-text">
+            JetVeil is a desktop-first web wrapper that runs a local ScramJet proxy
+            server directly on the user's machine, pairing a native desktop shell
+            with a bundled browser UI for quick, private access.
+          </p>
+          <div class="hero-actions">
+            <a
+              class="button button-primary"
+              href="https://github.com/SillyLittleTech/JetVeil/releases"
+              target="_blank"
+              rel="noopener noreferrer"
+            >Download</a>
+            <a
+              class="button button-secondary"
+              href="https://github.com/SillyLittleTech/JetVeil"
+              target="_blank"
+              rel="noopener noreferrer"
+            >View on GitHub</a>
+          </div>
+        </div>
+
+        <aside class="hero-panel" aria-label="JetVeil highlights">
+          <div class="panel-grid">
+            <article class="mini-card">
+              <span class="mini-label">Runtime</span>
+              <strong>Electron + Node.js</strong>
+              <p>Desktop wrapper with a local proxy server and bundled UI.</p>
+            </article>
+            <article class="mini-card">
+              <span class="mini-label">Proxy</span>
+              <strong>ScramJet + bare-server</strong>
+              <p>Built for local routing instead of depending on public hosted relays.</p>
+            </article>
+            <article class="mini-card">
+              <span class="mini-label">Platforms</span>
+              <strong>macOS, Windows, Linux</strong>
+              <p>Packaged for desktop environments where the app can manage its own runtime.</p>
+            </article>
+          </div>
+        </aside>
+      </section>
+    </header>
+
+    <main>
+      <section class="section" id="capabilities">
+        <div class="section-heading">
+          <p class="eyebrow">Capabilities</p>
+          <h2>What JetVeil is built to do</h2>
+          <p>
+            JetVeil combines a local-first proxy stack with a streamlined browser shell,
+            so the app can launch, route, and manage browsing sessions from the desktop.
+          </p>
+        </div>
+
+        <div class="capability-grid">
+          <article class="feature-card">
+            <h3>Runs its own local proxy stack</h3>
+            <p>
+              JetVeil starts a ScramJet-powered proxy server on localhost, using an
+              available local port instead of relying on a remote public deployment.
+            </p>
+          </article>
+          <article class="feature-card">
+            <h3>Bundles the browsing interface</h3>
+            <p>
+              The app ships with its own HTML, CSS, and JavaScript browser UI, so the
+              desktop build includes everything needed to get browsing quickly.
+            </p>
+          </article>
+          <article class="feature-card">
+            <h3>Provides browser-style controls</h3>
+            <p>
+              The UI includes navigation actions, a URL/search bar, tabs, quick-access
+              shortcuts, and browser preferences for a focused desktop workflow.
+            </p>
+          </article>
+          <article class="feature-card">
+            <h3>Keeps debugging close at hand</h3>
+            <p>
+              JetVeil exposes recent browser and server logs through its debug panel,
+              making it easier to inspect startup and routing behavior locally.
+            </p>
+          </article>
+          <article class="feature-card">
+            <h3>Shuts down cleanly</h3>
+            <p>
+              When the desktop app exits, the local server is designed to shut down
+              gracefully along with it instead of lingering in the background.
+            </p>
+          </article>
+          <article class="feature-card">
+            <h3>Targets desktop deployment</h3>
+            <p>
+              JetVeil is tailored for desktop environments where users can run the
+              server and interface together as a self-contained application.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section architecture" id="architecture">
+        <div class="section-heading">
+          <p class="eyebrow">Architecture</p>
+          <h2>A simple local-first stack</h2>
+          <p>
+            The project is split into a desktop wrapper, a local proxy server, and a
+            bundled web UI. Each layer is focused, but they ship together as one app.
+          </p>
+        </div>
+
+        <div class="stack">
+          <article class="stack-row">
+            <span class="stack-label">Desktop wrapper</span>
+            <div>
+              <h3>Electron desktop runtime</h3>
+              <p>Launches JetVeil as a desktop app on supported operating systems.</p>
+            </div>
+          </article>
+          <article class="stack-row">
+            <span class="stack-label">Local server</span>
+            <div>
+              <h3>Node.js with ScramJet and bare-server</h3>
+              <p>Handles proxy transport, static assets, and local request routing.</p>
+            </div>
+          </article>
+          <article class="stack-row">
+            <span class="stack-label">Interface</span>
+            <div>
+              <h3>Bundled browser UI</h3>
+              <p>Presents the JetVeil shell, address bar, quick links, settings, and diagnostics.</p>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="section cta">
+        <div class="cta-card">
+          <div>
+            <p class="eyebrow">Get started</p>
+            <h2>Download JetVeil or explore the source.</h2>
+            <p>
+              Releases are published on GitHub, and the full project is available for
+              inspection, contribution, and self-hosted builds.
+            </p>
+          </div>
+          <div class="cta-actions">
+            <a
+              class="button button-primary"
+              href="https://github.com/SillyLittleTech/JetVeil/releases"
+              target="_blank"
+              rel="noopener noreferrer"
+            >Download</a>
+            <a
+              class="button button-secondary"
+              href="https://github.com/SillyLittleTech/JetVeil"
+              target="_blank"
+              rel="noopener noreferrer"
+            >GitHub Repository</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <p>
+        A project by
+        <a href="https://sillylittle.tech" target="_blank" rel="noopener noreferrer">SillyLittleTech</a>
+      </p>
+      <p class="subfooter">
+        © 2026 SillyLittleTech. Fiscally sponsored by The Hack Foundation (d.b.a. Hack Club), a 501(c)(3) nonprofit (EIN: 81-2908499). Licensed under BSD-2-Clause.
+      </p>
+    </footer>
+  </div>
+</body>
+</html>
