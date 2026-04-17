@@ -107,8 +107,11 @@ function safeJoin(base, rel) {
     // Malformed percent-encoding — treat as not found rather than crashing
     return null;
   }
+  // URL paths may begin with "/" even though they are intended to be relative
+  // to our static root. Strip only the leading separators before path checks.
+  const trimmed = decoded.replace(/^[/\\]+/, "");
   // Normalise to remove ".." sequences
-  const normalised = normalize(decoded).replace(/^(\.\.(\/|\\|$))+/, "");
+  const normalised = normalize(trimmed).replace(/^(\.\.(\/|\\|$))+/, "");
   const full = resolve(join(base, normalised));
 
   // Reject absolute user-supplied paths and anything that escapes the base
