@@ -36,7 +36,7 @@
     },
     "mac": {
       "category": "public.app-category.utilities",
-      "identity": null,
+      "identity": "-",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "notarize": false
