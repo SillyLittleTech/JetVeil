@@ -1,151 +1,20 @@
 import { ScramjetServiceWorker } from "/scram/scramjet.bundle.js";
 
 const scramjet = new ScramjetServiceWorker();
-let configReady = false;
-let scramjetConfig = null;
-const DEFAULT_SCRAMJET_CONFIG = {
-  prefix: "/scramjet/",
-  files: {
-    wasm: "/scram/scramjet.wasm.wasm",
-    all: "/scram/scramjet.all.js",
-    sync: "/scram/scramjet.sync.js",
-  },
-};
 
-function normaliseConfigShape(config) {
-  if (!config || typeof config !== "object") return { ...DEFAULT_SCRAMJET_CONFIG };
-  const candidate = config.config && typeof config.config === "object"
-    ? config.config
-    : config;
-
-  return {
-    ...DEFAULT_SCRAMJET_CONFIG,
-    ...candidate,
-    files: {
-      ...DEFAULT_SCRAMJET_CONFIG.files,
-      ...(candidate.files && typeof candidate.files === "object" ? candidate.files : {}),
-    },
-  };
-}
-
-function isPrefixConfigError(err) {
-  return String(err?.message || err || "").includes("reading 'prefix'");
-}
-
-function hasValidConfig(config) {
-  return Boolean(
-    config
-    && typeof config === "object"
-    && typeof config.prefix === "string"
-    && config.prefix.length > 0
-    && config.files
-    && typeof config.files === "object"
-  );
-}
-
-async function persistConfigToDb(config) {
-  if (!("indexedDB" in self)) return;
-
-  await new Promise((resolve) => {
-    const req = indexedDB.open("$scramjet", 1);
-
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains("config")) db.createObjectStore("config");
-    };
-
-    req.onsuccess = () => {
-      try {
-        const db = req.result;
-        const tx = db.transaction("config", "readwrite");
-        tx.objectStore("config").put(config, "config");
-        tx.oncomplete = () => {
-          db.close();
-          resolve();
-        };
-        tx.onerror = () => {
-          db.close();
-          resolve();
-        };
-      } catch {
-        resolve();
-      }
-    };
-
-    req.onerror = () => resolve();
+function postToClients(payload) {
+  self.clients.matchAll().then((clients) => {
+    clients.forEach((client) => client.postMessage(payload));
   });
 }
 
-async function hydrateScramjetConfig(config) {
-  const normalized = normaliseConfigShape(config);
-  await persistConfigToDb(normalized);
-
-  // Force Scramjet through its native loadConfig path so both internal
-  // config references are initialized (not only this.config).
-  try {
-    scramjet.config = undefined;
-    await scramjet.loadConfig();
-  } catch {
-    // Keep fallback behavior below.
-  }
-
-  if (!hasValidConfig(scramjet.config)) {
-    scramjet.config = normalized;
-  }
-
-  applyConfigToRuntime(scramjet.config ?? normalized);
+function postSwError(url, err) {
+  postToClients({
+    type: "sw-error",
+    url,
+    error: String(err),
+  });
 }
-
-function applyConfigToRuntime(config) {
-  const normalized = normaliseConfigShape(config);
-
-  // Scramjet reads config from both instance and global contexts depending on
-  // internal code path; set both to avoid undefined config at route/fetch time.
-  scramjet.config = normalized;
-  globalThis.$scramjet = {
-    ...(globalThis.$scramjet && typeof globalThis.$scramjet === "object"
-      ? globalThis.$scramjet
-      : {}),
-    ...normalized,
-    config: normalized,
-  };
-}
-
-async function ensureConfig() {
-  if (configReady) {
-    if (!hasValidConfig(scramjet.config)) {
-      await hydrateScramjetConfig(scramjet.config ?? scramjetConfig ?? DEFAULT_SCRAMJET_CONFIG);
-    }
-    return;
-  }
-  
-  // If config was sent via postMessage, use it
-  if (scramjetConfig) {
-    await hydrateScramjetConfig(scramjetConfig);
-    configReady = true;
-    return;
-  }
-  
-  try {
-    await hydrateScramjetConfig(scramjet.config ?? globalThis.$scramjet ?? DEFAULT_SCRAMJET_CONFIG);
-    configReady = true;
-  } catch (err) {
-    console.error('[SW] Failed to load Scramjet config:', err);
-    // Keep runtime alive with default config so route/fetch calls cannot crash.
-    await hydrateScramjetConfig(DEFAULT_SCRAMJET_CONFIG);
-    configReady = true;
-  }
-}
-
-self.addEventListener("message", (event) => {
-  if (event.data?.type === "SCRAMJET_CONFIG") {
-    scramjetConfig = event.data.payload;
-    // Ensure config is persisted and hydrated through Scramjet internals.
-    void hydrateScramjetConfig(scramjetConfig);
-    configReady = true;
-    console.log('[SW] Received Scramjet config:', scramjetConfig);
-  }
-});
 
 self.addEventListener("install", () => {
   self.skipWaiting();
@@ -163,37 +32,33 @@ self.addEventListener("fetch", (event) => {
       const isFrameRequest = event.request.destination === "document" || event.request.destination === "iframe";
 
       try {
-        await ensureConfig();
+        // Canonical Scramjet lifecycle: load config before route/fetch checks.
+        await scramjet.loadConfig();
+
         let routeResult = false;
         try {
           routeResult = Boolean(scramjet.route(event));
         } catch (routeErr) {
-          if (!isPrefixConfigError(routeErr)) throw routeErr;
-          await hydrateScramjetConfig(scramjet.config ?? scramjetConfig ?? DEFAULT_SCRAMJET_CONFIG);
-          routeResult = Boolean(scramjet.route(event));
+          postSwError(event.request.url, routeErr);
+          routeResult = looksLikeScramjetRoute || isFrameRequest;
         }
 
         // Log all requests for debugging
-        self.clients.matchAll().then((clients) => {
-          clients.forEach((client) => {
-            client.postMessage({
-              type: "sw-fetch",
-              url: event.request.url,
-              method: event.request.method,
-              isScramjetRoute: looksLikeScramjetRoute,
-              routeResult,
-              isFrameRequest,
-            });
-          });
+        postToClients({
+          type: "sw-fetch",
+          url: event.request.url,
+          method: event.request.method,
+          isScramjetRoute: looksLikeScramjetRoute,
+          routeResult,
+          isFrameRequest,
         });
 
-        if (routeResult || looksLikeScramjetRoute) {
+        if (routeResult) {
           try {
             return await scramjet.fetch(event);
           } catch (fetchErr) {
-            if (!isPrefixConfigError(fetchErr)) throw fetchErr;
-            await hydrateScramjetConfig(scramjet.config ?? scramjetConfig ?? DEFAULT_SCRAMJET_CONFIG);
-            return await scramjet.fetch(event);
+            postSwError(event.request.url, fetchErr);
+            throw fetchErr;
           }
         }
 
@@ -201,15 +66,7 @@ self.addEventListener("fetch", (event) => {
       } catch (err) {
         // Log error for debugging
         console.error('[SW] Fetch error:', err, { url: event.request.url });
-        self.clients.matchAll().then((clients) => {
-          clients.forEach((client) => {
-            client.postMessage({
-              type: "sw-error",
-              url: event.request.url,
-              error: String(err),
-            });
-          });
-        });
+        postSwError(event.request.url, err);
 
         // Do not fall back to app HTML for Scramjet routes; that creates a
         // recursive app-in-iframe failure mode.

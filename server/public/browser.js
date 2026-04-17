@@ -49,7 +49,9 @@ let debugPollTimer = null;
 const sjBootParams = new URLSearchParams(window.location.search);
 const sjRecoveryAttempted = sjBootParams.get("sj_recover") === "1";
 const sjSwBootAttempted = sjBootParams.get("sj_sw") === "1";
-const SERVICE_WORKER_VERSION = "2026-04-17-1";
+const sjSwRefreshAttempted = sjBootParams.get("sj_sw_refresh") === "1";
+const SERVICE_WORKER_VERSION = "2026-04-17-7";
+const SERVICE_WORKER_VERSION_KEY = "jetveil-sw-version";
 
 const SCRAMJET_CONFIG = {
   prefix: "/scramjet/",
@@ -795,6 +797,33 @@ function reloadForServiceWorkerControl() {
   window.location.replace(url.toString());
 }
 
+function reloadForServiceWorkerRefresh() {
+  const url = new URL(window.location.href);
+  url.searchParams.set("sj_sw_refresh", "1");
+  window.location.replace(url.toString());
+}
+
+async function refreshServiceWorkerIfVersionChanged() {
+  const lastVersion = localStorage.getItem(SERVICE_WORKER_VERSION_KEY);
+  if (lastVersion === SERVICE_WORKER_VERSION) return false;
+
+  localStorage.setItem(SERVICE_WORKER_VERSION_KEY, SERVICE_WORKER_VERSION);
+  const registrations = await navigator.serviceWorker.getRegistrations();
+  await Promise.allSettled(registrations.map((registration) => registration.unregister()));
+  pushAppLog("warn", "Service worker version changed; cleared previous registrations", {
+    from: lastVersion,
+    to: SERVICE_WORKER_VERSION,
+    count: registrations.length,
+  });
+
+  if (!sjSwRefreshAttempted) {
+    reloadForServiceWorkerRefresh();
+    return true;
+  }
+
+  return false;
+}
+
 async function main() {
   pushAppLog("info", "Starting initialization pipeline");
 
@@ -821,10 +850,19 @@ async function main() {
       throw new Error("Service workers are not supported in this environment");
     }
 
-    await navigator.serviceWorker.register(`/scramjet.sw.js?v=${SERVICE_WORKER_VERSION}`, {
+    if (await refreshServiceWorkerIfVersionChanged()) return;
+
+    const swRegistration = await navigator.serviceWorker.register(`/scramjet.sw.js?v=${SERVICE_WORKER_VERSION}`, {
       scope: "/",
       type: "module",
+      updateViaCache: "none",
     });
+
+    try {
+      await swRegistration.update();
+    } catch {
+      // Ignore update errors and continue with active worker.
+    }
 
     try {
       await navigator.serviceWorker.ready;
@@ -928,19 +966,7 @@ async function main() {
       }
     }
     pushAppLog("info", "Scramjet initialization succeeded");
-    
-    // Send config to service worker so it can handle proxied requests
-    if (navigator.serviceWorker.controller) {
-      pushAppLog("debug", "Sending Scramjet config to service worker");
-      navigator.serviceWorker.controller.postMessage({
-        scramjet$type: "loadConfig",
-        config: SCRAMJET_CONFIG,
-      });
-      navigator.serviceWorker.controller.postMessage({
-        type: "SCRAMJET_CONFIG",
-        payload: SCRAMJET_CONFIG,
-      });
-    }
+
   } catch (err) {
     pushAppLog("error", "Scramjet initialization failed", err);
     showError(`Scramjet init failed: ${err.message}`);
