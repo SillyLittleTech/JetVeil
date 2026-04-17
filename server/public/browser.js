@@ -49,6 +49,7 @@ let debugPollTimer = null;
 const sjBootParams = new URLSearchParams(window.location.search);
 const sjRecoveryAttempted = sjBootParams.get("sj_recover") === "1";
 const sjSwBootAttempted = sjBootParams.get("sj_sw") === "1";
+const SERVICE_WORKER_VERSION = "2026-04-17-1";
 
 const SCRAMJET_CONFIG = {
   prefix: "/scramjet/",
@@ -820,7 +821,7 @@ async function main() {
       throw new Error("Service workers are not supported in this environment");
     }
 
-    await navigator.serviceWorker.register("/scramjet.sw.js", {
+    await navigator.serviceWorker.register(`/scramjet.sw.js?v=${SERVICE_WORKER_VERSION}`, {
       scope: "/",
       type: "module",
     });

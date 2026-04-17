@@ -1,6 +1,6 @@
 {
   "name": "jetveil-desktop",
-  "version": "1.6.7",
+  "version": "1.6.10",
   "private": true,
   "author": {
     "name": "SillyLittleTech",
@@ -23,6 +23,7 @@
     "build:windows": "electron-builder --windows nsis portable --publish never",
     "build:mac": "electron-builder --mac zip dmg --publish never",
     "build:mac:unsigned": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac zip --publish never",
+    "build:mac:adhoc": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac zip --publish never -c.mac.identity=-",
     "build:mac:dmg": "electron-builder --mac dmg --publish never"
   },
   "devDependencies": {
@@ -37,6 +38,7 @@
     },
     "mac": {
       "category": "public.app-category.utilities",
+      "identity": "-",
       "hardenedRuntime": false,
       "gatekeeperAssess": false
     },

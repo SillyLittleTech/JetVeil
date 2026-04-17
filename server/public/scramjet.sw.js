@@ -3,18 +3,55 @@ import { ScramjetServiceWorker } from "/scram/scramjet.bundle.js";
 const scramjet = new ScramjetServiceWorker();
 let configReady = false;
 let scramjetConfig = null;
+const DEFAULT_SCRAMJET_CONFIG = {
+  prefix: "/scramjet/",
+  files: {
+    wasm: "/scram/scramjet.wasm.wasm",
+    all: "/scram/scramjet.all.js",
+    sync: "/scram/scramjet.sync.js",
+  },
+};
+
+function normaliseConfigShape(config) {
+  if (!config || typeof config !== "object") return { ...DEFAULT_SCRAMJET_CONFIG };
+  const candidate = config.config && typeof config.config === "object"
+    ? config.config
+    : config;
+
+  return {
+    ...DEFAULT_SCRAMJET_CONFIG,
+    ...candidate,
+    files: {
+      ...DEFAULT_SCRAMJET_CONFIG.files,
+      ...(candidate.files && typeof candidate.files === "object" ? candidate.files : {}),
+    },
+  };
+}
+
+function isPrefixConfigError(err) {
+  return String(err?.message || err || "").includes("reading 'prefix'");
+}
 
 function applyConfigToRuntime(config) {
-  if (!config || typeof config !== "object") return;
+  const normalized = normaliseConfigShape(config);
 
   // Scramjet reads config from both instance and global contexts depending on
   // internal code path; set both to avoid undefined config at route/fetch time.
-  scramjet.config = config;
-  globalThis.$scramjet = config;
+  scramjet.config = normalized;
+  globalThis.$scramjet = {
+    ...(globalThis.$scramjet && typeof globalThis.$scramjet === "object"
+      ? globalThis.$scramjet
+      : {}),
+    ...normalized,
+    config: normalized,
+  };
 }
 
 async function ensureConfig() {
-  if (configReady) return;
+  if (configReady) {
+    if (!scramjet.config?.prefix) applyConfigToRuntime(scramjet.config ?? scramjetConfig);
+    return;
+  }
   
   // If config was sent via postMessage, use it
   if (scramjetConfig) {
@@ -29,12 +66,14 @@ async function ensureConfig() {
     configReady = true;
   } catch (err) {
     console.error('[SW] Failed to load Scramjet config:', err);
-    throw err;
+    // Keep runtime alive with default config so route/fetch calls cannot crash.
+    applyConfigToRuntime(DEFAULT_SCRAMJET_CONFIG);
+    configReady = true;
   }
 }
 
 self.addEventListener("message", (event) => {
-  if (event.data.type === "SCRAMJET_CONFIG") {
+  if (event.data?.type === "SCRAMJET_CONFIG") {
     scramjetConfig = event.data.payload;
     applyConfigToRuntime(scramjetConfig);
     configReady = true;
@@ -59,7 +98,14 @@ self.addEventListener("fetch", (event) => {
 
       try {
         await ensureConfig();
-        const routeResult = scramjet.route(event);
+        let routeResult = false;
+        try {
+          routeResult = Boolean(scramjet.route(event));
+        } catch (routeErr) {
+          if (!isPrefixConfigError(routeErr)) throw routeErr;
+          applyConfigToRuntime(scramjet.config ?? scramjetConfig ?? DEFAULT_SCRAMJET_CONFIG);
+          routeResult = Boolean(scramjet.route(event));
+        }
 
         // Log all requests for debugging
         self.clients.matchAll().then((clients) => {
@@ -76,7 +122,13 @@ self.addEventListener("fetch", (event) => {
         });
 
         if (routeResult || looksLikeScramjetRoute) {
-          return await scramjet.fetch(event);
+          try {
+            return await scramjet.fetch(event);
+          } catch (fetchErr) {
+            if (!isPrefixConfigError(fetchErr)) throw fetchErr;
+            applyConfigToRuntime(scramjet.config ?? scramjetConfig ?? DEFAULT_SCRAMJET_CONFIG);
+            return await scramjet.fetch(event);
+          }
         }
 
         return fetch(event.request);

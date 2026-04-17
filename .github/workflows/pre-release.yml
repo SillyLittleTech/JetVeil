@@ -119,6 +119,29 @@ jobs:
       - name: Build macOS artifacts
         run: npm run build:mac:unsigned
 
+      - name: Ad-hoc sign macOS app and repackage ZIP
+        run: |
+          set -euo pipefail
+          APP_PATH=$(find desktop/dist -type d -name "JetVeil.app" | head -n 1)
+          if [ -z "${APP_PATH}" ]; then
+            echo "::error::JetVeil.app not found in desktop/dist"
+            exit 1
+          fi
+
+          xattr -cr "${APP_PATH}"
+          xattr -d com.apple.FinderInfo "${APP_PATH}" 2>/dev/null || true
+          codesign --force --deep --sign - "${APP_PATH}"
+          codesign --verify --deep --verbose=2 "${APP_PATH}"
+
+          EXISTING_ZIP=$(find desktop/dist -maxdepth 1 -type f -name "*-mac.zip" | head -n 1)
+          if [ -n "${EXISTING_ZIP}" ]; then
+            rm -f "${EXISTING_ZIP}"
+          fi
+
+          ditto -c -k --sequesterRsrc --keepParent \
+            "${APP_PATH}" \
+            "desktop/dist/JetVeil-${{ needs.version.outputs.version }}-adhoc-mac.zip"
+
       - uses: actions/upload-artifact@v4
         with:
           name: macos-build-pre
