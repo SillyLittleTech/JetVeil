@@ -933,6 +933,10 @@ async function main() {
     if (navigator.serviceWorker.controller) {
       pushAppLog("debug", "Sending Scramjet config to service worker");
       navigator.serviceWorker.controller.postMessage({
+        scramjet$type: "loadConfig",
+        config: SCRAMJET_CONFIG,
+      });
+      navigator.serviceWorker.controller.postMessage({
         type: "SCRAMJET_CONFIG",
         payload: SCRAMJET_CONFIG,
       });

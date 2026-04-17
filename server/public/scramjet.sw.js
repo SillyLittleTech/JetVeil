@@ -32,6 +32,70 @@ function isPrefixConfigError(err) {
   return String(err?.message || err || "").includes("reading 'prefix'");
 }
 
+function hasValidConfig(config) {
+  return Boolean(
+    config
+    && typeof config === "object"
+    && typeof config.prefix === "string"
+    && config.prefix.length > 0
+    && config.files
+    && typeof config.files === "object"
+  );
+}
+
+async function persistConfigToDb(config) {
+  if (!("indexedDB" in self)) return;
+
+  await new Promise((resolve) => {
+    const req = indexedDB.open("$scramjet", 1);
+
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains("config")) db.createObjectStore("config");
+    };
+
+    req.onsuccess = () => {
+      try {
+        const db = req.result;
+        const tx = db.transaction("config", "readwrite");
+        tx.objectStore("config").put(config, "config");
+        tx.oncomplete = () => {
+          db.close();
+          resolve();
+        };
+        tx.onerror = () => {
+          db.close();
+          resolve();
+        };
+      } catch {
+        resolve();
+      }
+    };
+
+    req.onerror = () => resolve();
+  });
+}
+
+async function hydrateScramjetConfig(config) {
+  const normalized = normaliseConfigShape(config);
+  await persistConfigToDb(normalized);
+
+  // Force Scramjet through its native loadConfig path so both internal
+  // config references are initialized (not only this.config).
+  try {
+    scramjet.config = undefined;
+    await scramjet.loadConfig();
+  } catch {
+    // Keep fallback behavior below.
+  }
+
+  if (!hasValidConfig(scramjet.config)) {
+    scramjet.config = normalized;
+  }
+
+  applyConfigToRuntime(scramjet.config ?? normalized);
+}
+
 function applyConfigToRuntime(config) {
   const normalized = normaliseConfigShape(config);
 
@@ -49,25 +113,26 @@ function applyConfigToRuntime(config) {
 
 async function ensureConfig() {
   if (configReady) {
-    if (!scramjet.config?.prefix) applyConfigToRuntime(scramjet.config ?? scramjetConfig);
+    if (!hasValidConfig(scramjet.config)) {
+      await hydrateScramjetConfig(scramjet.config ?? scramjetConfig ?? DEFAULT_SCRAMJET_CONFIG);
+    }
     return;
   }
   
   // If config was sent via postMessage, use it
   if (scramjetConfig) {
-    applyConfigToRuntime(scramjetConfig);
+    await hydrateScramjetConfig(scramjetConfig);
     configReady = true;
     return;
   }
   
   try {
-    await scramjet.loadConfig();
-    applyConfigToRuntime(scramjet.config ?? globalThis.$scramjet);
+    await hydrateScramjetConfig(scramjet.config ?? globalThis.$scramjet ?? DEFAULT_SCRAMJET_CONFIG);
     configReady = true;
   } catch (err) {
     console.error('[SW] Failed to load Scramjet config:', err);
     // Keep runtime alive with default config so route/fetch calls cannot crash.
-    applyConfigToRuntime(DEFAULT_SCRAMJET_CONFIG);
+    await hydrateScramjetConfig(DEFAULT_SCRAMJET_CONFIG);
     configReady = true;
   }
 }
@@ -75,7 +140,8 @@ async function ensureConfig() {
 self.addEventListener("message", (event) => {
   if (event.data?.type === "SCRAMJET_CONFIG") {
     scramjetConfig = event.data.payload;
-    applyConfigToRuntime(scramjetConfig);
+    // Ensure config is persisted and hydrated through Scramjet internals.
+    void hydrateScramjetConfig(scramjetConfig);
     configReady = true;
     console.log('[SW] Received Scramjet config:', scramjetConfig);
   }
@@ -103,7 +169,7 @@ self.addEventListener("fetch", (event) => {
           routeResult = Boolean(scramjet.route(event));
         } catch (routeErr) {
           if (!isPrefixConfigError(routeErr)) throw routeErr;
-          applyConfigToRuntime(scramjet.config ?? scramjetConfig ?? DEFAULT_SCRAMJET_CONFIG);
+          await hydrateScramjetConfig(scramjet.config ?? scramjetConfig ?? DEFAULT_SCRAMJET_CONFIG);
           routeResult = Boolean(scramjet.route(event));
         }
 
@@ -126,7 +192,7 @@ self.addEventListener("fetch", (event) => {
             return await scramjet.fetch(event);
           } catch (fetchErr) {
             if (!isPrefixConfigError(fetchErr)) throw fetchErr;
-            applyConfigToRuntime(scramjet.config ?? scramjetConfig ?? DEFAULT_SCRAMJET_CONFIG);
+            await hydrateScramjetConfig(scramjet.config ?? scramjetConfig ?? DEFAULT_SCRAMJET_CONFIG);
             return await scramjet.fetch(event);
           }
         }

@@ -164,6 +164,15 @@ jobs:
 
             Automated Electron release built from commit `${{ github.sha }}`.
 
+            ### macOS trust warning
+            This build is ad-hoc signed but not Apple notarized. macOS may show:
+            "Apple could not verify \"JetVeil\" is free of malware".
+
+            To open anyway:
+            1. Move `JetVeil.app` to `/Applications`.
+            2. Run: `xattr -dr com.apple.quarantine /Applications/JetVeil.app`
+            3. Run: `open /Applications/JetVeil.app`
+
             ### Desktop Downloads
             Includes Linux, Windows, and macOS builds generated from `desktop/` using Electron Builder.
           files: |

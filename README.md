@@ -89,6 +89,14 @@ Important notes:
 - Cross-building Windows installers from Linux may require additional toolchain setup.
 - The desktop build embeds the local `server/` runtime and static UI assets, so no hosted web build is required.
 - If DMG packaging errors with a missing `dmg-license` module, use ZIP builds (`npm run build:mac`) or install `dmg-license` in `desktop/` and retry the DMG target.
+- macOS builds in this repository are currently ad-hoc signed, not Apple notarized. Gatekeeper may show a malware verification warning.
+
+If macOS blocks launch with "could not verify ... free of malware", run:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/JetVeil.app
+open /Applications/JetVeil.app
+```
 
 ## Notes
 
