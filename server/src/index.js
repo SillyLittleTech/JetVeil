@@ -12,25 +12,79 @@
 
 import { createServer } from "node:http";
 import { createReadStream, existsSync, statSync } from "node:fs";
-import { join, normalize, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { dirname, isAbsolute, join, normalize, relative, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { Agent as HttpAgent } from "node:http";
+import { Agent as HttpsAgent } from "node:https";
 
 import { createBareServer } from "@tomphttp/bare-server-node";
 import { lookup as mimeLookup } from "mime-types";
 
 import { scramjetPath } from "@mercuryworkshop/scramjet/path";
 import { baremuxPath } from "@mercuryworkshop/bare-mux/node";
+import { createRequire } from "node:module";
 
 // ─── Paths ────────────────────────────────────────────────────────────────────
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const publicPath = resolve(join(__dirname, "../public"));
+const assetsPath = appAssetsPath();
 const scramjetBase = resolve(scramjetPath);
 const baremuxBase  = resolve(baremuxPath);
+const require = createRequire(import.meta.url);
+const bareAsModule3Entrypoint = require.resolve("@mercuryworkshop/bare-as-module3");
+const bareAsModule3Base = resolve(
+  join(dirname(bareAsModule3Entrypoint), "../dist")
+);
+
+function appAssetsPath() {
+  if (process.env.VERCEL) {
+    return resolve(join(__dirname, "../../assets"));
+  }
+
+  const packagedAssets = resolve(join(process.resourcesPath, "assets"));
+  if (existsSync(packagedAssets)) {
+    return packagedAssets;
+  }
+
+  return resolve(join(__dirname, "../../assets"));
+}
+
+// ─── In-memory debug logs ───────────────────────────────────────────────────
+
+const MAX_DEBUG_LOGS = 400;
+const serverDebugLogs = [];
+
+function addServerLog(level, message, data = undefined) {
+  serverDebugLogs.push({
+    ts: new Date().toISOString(),
+    level,
+    message,
+    data,
+  });
+  if (serverDebugLogs.length > MAX_DEBUG_LOGS) {
+    serverDebugLogs.shift();
+  }
+}
+
+addServerLog("info", "JetVeil server module loaded", {
+  node: process.version,
+  platform: process.platform,
+});
 
 // ─── Bare server (HTTP proxy transport) ──────────────────────────────────────
 
-const bare = createBareServer("/bare/");
+const bare = createBareServer("/bare/", {
+  // The bare server default is only 10 keep-alive requests/IP per minute, which
+  // is too low for normal page navigations with many subrequests.
+  connectionLimiter: {
+    maxConnectionsPerIP: 1000,
+    windowDuration: 60,
+    blockDuration: 10,
+  },
+  httpAgent: new HttpAgent({ keepAlive: true, maxSockets: 256 }),
+  httpsAgent: new HttpsAgent({ keepAlive: true, maxSockets: 256 }),
+});
 
 // ─── Path helpers ─────────────────────────────────────────────────────────────
 
@@ -53,11 +107,20 @@ function safeJoin(base, rel) {
     // Malformed percent-encoding — treat as not found rather than crashing
     return null;
   }
+  // URL paths may begin with "/" even though they are intended to be relative
+  // to our static root. Strip only the leading separators before path checks.
+  const trimmed = decoded.replace(/^[/\\]+/, "");
   // Normalise to remove ".." sequences
-  const normalised = normalize(decoded).replace(/^(\.\.(\/|\\|$))+/, "");
+  const normalised = normalize(trimmed).replace(/^(\.\.(\/|\\|$))+/, "");
   const full = resolve(join(base, normalised));
-  // Reject if the resolved path escapes the base directory
-  if (!full.startsWith(base + "/") && full !== base) return null;
+
+  // Reject absolute user-supplied paths and anything that escapes the base
+  // directory. `relative()` keeps this portable across POSIX and Windows.
+  if (isAbsolute(normalised)) return null;
+
+  const relFromBase = relative(base, full);
+  if (relFromBase.startsWith("..") || isAbsolute(relFromBase)) return null;
+
   return full;
 }
 
@@ -99,16 +162,42 @@ function serveFile(res, filePath) {
  * @param {import("node:http").ServerResponse} res
  */
 export default function handler(req, res) {
-  // Security headers required for Scramjet's SharedArrayBuffer usage
-  res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
-  res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
-
   const rawUrl = req.url ?? "/";
   const url = rawUrl.split("?")[0]; // strip query string for routing
+  const isBareRoute = bare.shouldRoute(req);
+
+  // Security headers required for Scramjet's SharedArrayBuffer usage on the
+  // JetVeil app shell, but avoid forcing them onto proxied site responses.
+  // Sites like Google reCAPTCHA can break when COOP/COEP is applied to the
+  // proxied destination page.
+  if (!isBareRoute) {
+    res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+    res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
+  }
+
+  addServerLog("request", "HTTP request", {
+    method: req.method,
+    url: rawUrl,
+  });
+
+  // ── Debug endpoint ────────────────────────────────────────────────────────
+  if (url === "/__debug/logs") {
+    const payload = JSON.stringify({
+      now: new Date().toISOString(),
+      logs: serverDebugLogs,
+    });
+    res.writeHead(200, {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-store",
+      "Content-Length": Buffer.byteLength(payload),
+    });
+    res.end(payload);
+    return;
+  }
 
   // ── Bare proxy ─────────────────────────────────────────────────────────────
-  if (bare.shouldRoute(req)) {
-    return bare.routeRequest(req, res);
+  if (isBareRoute) {
+      return bare.routeRequest(req, res);
   }
 
   // ── Scramjet static files ──────────────────────────────────────────────────
@@ -123,6 +212,18 @@ export default function handler(req, res) {
     return serveFile(res, safeJoin(baremuxBase, rel));
   }
 
+  // ── bare-as-module3 transport files for bare-mux ────────────────────────
+  if (url.startsWith("/transports/bare-as-module3/")) {
+    const rel = url.slice("/transports/bare-as-module3/".length);
+    return serveFile(res, safeJoin(bareAsModule3Base, rel));
+  }
+
+  // ── Packaged artwork / icons ─────────────────────────────────────────────
+  if (url.startsWith("/assets/")) {
+    const rel = url.slice("/assets/".length);
+    return serveFile(res, safeJoin(assetsPath, rel));
+  }
+
   // ── Public UI (JetVeil frontend) ───────────────────────────────────────────
   const relPath = url === "/" ? "index.html" : url;
   const candidate = safeJoin(publicPath, relPath);
@@ -134,24 +235,90 @@ export default function handler(req, res) {
   return serveFile(res, join(publicPath, "index.html"));
 }
 
+/**
+ * Creates a Node HTTP server that serves JetVeil + Scramjet endpoints.
+ *
+ * The returned server is not listening yet.
+ */
+export function createJetVeilServer() {
+  return createServer()
+    .on("request", (req, res) => handler(req, res))
+    .on("upgrade", (req, socket, _head) => {
+      // Wisp WebSocket support for self-hosted deployments.
+      addServerLog("warn", "Upgrade request rejected", {
+        url: req.url,
+      });
+      socket.end();
+    });
+}
+
+/**
+ * Starts the JetVeil server and resolves with bound runtime details.
+ *
+ * @param {{port?: number, host?: string}} [options]
+ */
+export function startJetVeilServer(options = {}) {
+  const {
+    port = parseInt(process.env.PORT ?? "8080", 10),
+    host = process.env.HOST ?? "127.0.0.1",
+  } = options;
+
+  const server = createJetVeilServer();
+
+  return new Promise((resolveStart, rejectStart) => {
+    server.once("error", (err) => rejectStart(err));
+    server.listen(port, host, () => {
+      const address = server.address();
+      const boundPort =
+        address && typeof address === "object" ? address.port : port;
+      const url = `http://${host}:${boundPort}`;
+      addServerLog("info", "JetVeil server listening", {
+        host,
+        port: boundPort,
+        url,
+      });
+      resolveStart({
+        server,
+        host,
+        port: boundPort,
+        url,
+        close: () =>
+          new Promise((resolveClose, rejectClose) => {
+            server.close((err) => {
+              if (err) rejectClose(err);
+              else resolveClose();
+            });
+          }),
+      });
+    });
+  });
+}
+
 // ─── Standalone Node.js server (local dev / Render / Docker) ─────────────────
 // Vercel imports `handler` directly; this block is skipped in that environment.
 
-if (!process.env.VERCEL) {
-  const PORT = parseInt(process.env.PORT ?? "8080", 10);
+const isDirectRun =
+  !!process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 
-  const server = createServer()
-    .on("request", (req, res) => handler(req, res))
-    .on("upgrade", (req, socket, _head) => {
-      // Wisp WebSocket support for self-hosted deployments
-      socket.end();
+if (!process.env.VERCEL && isDirectRun) {
+  startJetVeilServer({
+    port: parseInt(process.env.PORT ?? "8080", 10),
+    host: "0.0.0.0",
+  })
+    .then(({ url, server }) => {
+      console.log(`JetVeil server running on ${url}`);
+
+      process.on("SIGINT", () => {
+        server.close();
+        process.exit(0);
+      });
+      process.on("SIGTERM", () => {
+        server.close();
+        process.exit(0);
+      });
+    })
+    .catch((err) => {
+      console.error("Failed to start JetVeil server:", err);
+      process.exit(1);
     });
-
-  server.listen(PORT, "0.0.0.0", () => {
-    console.log(`JetVeil server running on http://localhost:${PORT}`);
-  });
-
-  process.on("SIGINT",  () => { server.close(); process.exit(0); });
-  process.on("SIGTERM", () => { server.close(); process.exit(0); });
 }
-

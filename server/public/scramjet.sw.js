@@ -1,0 +1,194 @@
+import { ScramjetServiceWorker } from "/scram/scramjet.bundle.js";
+
+const scramjet = new ScramjetServiceWorker();
+
+function postToClients(payload) {
+  self.clients.matchAll().then((clients) => {
+    clients.forEach((client) => client.postMessage(payload));
+  });
+}
+
+function postSwError(url, err) {
+  postToClients({
+    type: "sw-error",
+    url,
+    error: String(err),
+  });
+}
+
+self.addEventListener("install", () => {
+  self.skipWaiting();
+});
+
+self.addEventListener("activate", (event) => {
+  event.waitUntil(self.clients.claim());
+});
+
+self.addEventListener("fetch", (event) => {
+  event.respondWith(
+    (async () => {
+      const reqUrl = new URL(event.request.url);
+      const looksLikeScramjetRoute = reqUrl.pathname.startsWith("/scramjet/");
+      const isFrameRequest = event.request.destination === "document" || event.request.destination === "iframe";
+
+      try {
+        // Canonical Scramjet lifecycle: load config before route/fetch checks.
+        await scramjet.loadConfig();
+
+        let routeResult = false;
+        try {
+          routeResult = Boolean(scramjet.route(event));
+        } catch (routeErr) {
+          postSwError(event.request.url, routeErr);
+          routeResult = looksLikeScramjetRoute || isFrameRequest;
+        }
+
+        // Log all requests for debugging
+        postToClients({
+          type: "sw-fetch",
+          url: event.request.url,
+          method: event.request.method,
+          isScramjetRoute: looksLikeScramjetRoute,
+          routeResult,
+          isFrameRequest,
+        });
+
+        if (routeResult) {
+          try {
+            return await scramjet.fetch(event);
+          } catch (fetchErr) {
+            postSwError(event.request.url, fetchErr);
+            throw fetchErr;
+          }
+        }
+
+        return fetch(event.request);
+      } catch (err) {
+        // Log error for debugging
+        console.error('[SW] Fetch error:', err, { url: event.request.url });
+        postSwError(event.request.url, err);
+
+        // Do not fall back to app HTML for Scramjet routes; that creates a
+        // recursive app-in-iframe failure mode.
+        if (looksLikeScramjetRoute) {
+          try {
+            return await scramjet.fetch(event);
+          } catch {
+            const reason = String(err?.message || err || "Unknown Scramjet error");
+            const html = `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>JetVeil couldn't open this page</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0d0d17;
+        --panel: #151522;
+        --panel-2: #1e1e2e;
+        --text: #f5f7fb;
+        --muted: #a8b0c2;
+        --accent: #00e5ff;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: radial-gradient(circle at top, #19192a 0, var(--bg) 60%);
+        color: var(--text);
+        font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      }
+      .card {
+        width: min(640px, calc(100vw - 32px));
+        padding: 28px;
+        border-radius: 24px;
+        background: linear-gradient(180deg, rgba(21,21,34,.98), rgba(13,13,23,.98));
+        border: 1px solid rgba(255,255,255,.08);
+        box-shadow: 0 24px 80px rgba(0,0,0,.45);
+      }
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 12px;
+        border-radius: 999px;
+        background: rgba(0,229,255,.12);
+        color: var(--accent);
+        font-weight: 700;
+      }
+      h1 {
+        margin: 18px 0 10px;
+        font-size: 28px;
+        line-height: 1.1;
+      }
+      p { color: var(--muted); line-height: 1.55; }
+      .panel {
+        margin-top: 18px;
+        padding: 16px;
+        border-radius: 16px;
+        background: var(--panel);
+        border: 1px solid rgba(255,255,255,.07);
+      }
+      .actions {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-top: 20px;
+      }
+      button {
+        appearance: none;
+        border: 0;
+        border-radius: 12px;
+        padding: 12px 16px;
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      .primary { background: var(--accent); color: #081016; }
+      .secondary { background: var(--panel-2); color: var(--text); }
+      code {
+        display: block;
+        margin-top: 10px;
+        padding: 12px;
+        border-radius: 12px;
+        background: rgba(255,255,255,.05);
+        color: #ffb199;
+        overflow: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <div class="badge">JetVeil proxy error</div>
+      <h1>This page couldn't be loaded through Scramjet.</h1>
+      <p>
+        JetVeil hit a proxy/runtime issue while opening this site. You can retry,
+        or check the advanced debug panel for more details.
+      </p>
+      <div class="panel">
+        <strong>What happened</strong>
+        <code>${reason.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</code>
+      </div>
+      <div class="actions">
+        <button class="primary" onclick="location.reload()">Retry</button>
+        <button class="secondary" onclick="history.back()">Go Back</button>
+      </div>
+    </main>
+  </body>
+</html>`;
+            return new Response(html, {
+              status: 502,
+              headers: { "Content-Type": "text/html; charset=utf-8" },
+            });
+          }
+        }
+        return fetch(event.request);
+      }
+    })()
+  );
+});

@@ -180,6 +180,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
+                            _AccentPreview(current: settings.accentColor),
+                            const SizedBox(height: 20),
                             _ThemeSelector(
                               current: settings.themeMode,
                               onChanged: (m) async {
@@ -281,6 +283,13 @@ class _AccentPicker extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text('Accent Colour', style: theme.textTheme.labelLarge),
+        const SizedBox(height: 4),
+        Text(
+          'Choose the highlight colour used across JetVeil.',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
         const SizedBox(height: 10),
         Wrap(
           spacing: 10,
@@ -289,37 +298,118 @@ class _AccentPicker extends StatelessWidget {
             final selected = current.value == entry.value.value;
             return Tooltip(
               message: entry.key,
-              child: GestureDetector(
-                onTap: () => onChanged(entry.value),
-                child: AnimatedContainer(
+              child: ChoiceChip(
+                selected: selected,
+                onSelected: (_) => onChanged(entry.value),
+                label: Text(entry.key),
+                avatar: AnimatedContainer(
                   duration: const Duration(milliseconds: 200),
-                  width: 36,
-                  height: 36,
+                  width: 14,
+                  height: 14,
                   decoration: BoxDecoration(
                     color: entry.value,
                     shape: BoxShape.circle,
-                    border: selected
-                        ? Border.all(
-                            color: theme.colorScheme.onSurface,
-                            width: 3,
-                          )
-                        : null,
+                    border: Border.all(
+                      color: selected
+                          ? theme.colorScheme.onSurface
+                          : theme.colorScheme.outlineVariant,
+                      width: 1,
+                    ),
                   ),
-                  child: selected
-                      ? Icon(Icons.check_rounded,
-                          size: 18,
-                          color: ThemeData.estimateBrightnessForColor(
-                                      entry.value) ==
-                                  Brightness.dark
-                              ? Colors.white
-                              : Colors.black)
-                      : null,
+                ),
+                labelStyle: theme.textTheme.labelMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+                showCheckmark: false,
+                selectedColor: theme.colorScheme.primaryContainer,
+                backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                side: BorderSide(
+                  color: selected
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.outlineVariant,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(999),
                 ),
               ),
             );
           }).toList(),
         ),
       ],
+    );
+  }
+}
+
+class _AccentPreview extends StatelessWidget {
+  const _AccentPreview({required this.current});
+
+  final Color current;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final onAccent = ThemeData.estimateBrightnessForColor(current) ==
+            Brightness.dark
+        ? Colors.white
+        : Colors.black;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: current.withAlpha(28),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: current.withAlpha(90)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 12,
+                height: 12,
+                decoration: BoxDecoration(
+                  color: current,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Live accent preview',
+                style: theme.textTheme.labelLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              FilledButton(
+                onPressed: () {},
+                style: FilledButton.styleFrom(
+                  backgroundColor: current,
+                  foregroundColor: onAccent,
+                  minimumSize: const Size(0, 38),
+                ),
+                child: const Text('Primary action'),
+              ),
+              OutlinedButton(
+                onPressed: () {},
+                style: OutlinedButton.styleFrom(minimumSize: const Size(0, 38)),
+                child: const Text('Secondary'),
+              ),
+              Chip(
+                label: const Text('Accent chip'),
+                backgroundColor: current.withAlpha(35),
+                labelStyle: TextStyle(color: current),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }

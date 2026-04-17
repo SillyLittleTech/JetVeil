@@ -1,0 +1,22 @@
+{
+  "name": "jetveil",
+  "version": "1.6.18",
+  "private": true,
+  "description": "JetVeil multiplatform desktop web wrapper with local ScramJet proxy.",
+  "scripts": {
+    "install:all": "npm --prefix server ci --ignore-scripts && npm --prefix desktop ci",
+    "dev": "node scripts/run-package-command.mjs desktop dev",
+    "dev:headless": "node scripts/run-package-command.mjs desktop dev:headless",
+    "pack": "node scripts/run-package-command.mjs desktop pack",
+    "build": "node scripts/run-package-command.mjs desktop build",
+    "build:macos": "node scripts/run-package-command.mjs desktop build:mac",
+    "build:mac": "node scripts/run-package-command.mjs desktop build:mac",
+    "build:mac:unsigned": "node scripts/run-package-command.mjs desktop build:mac:unsigned",
+    "build:mac:adhoc": "node scripts/run-package-command.mjs desktop build:mac:adhoc",
+    "build:linux": "node scripts/run-package-command.mjs desktop build:linux",
+    "build:windows": "node scripts/run-package-command.mjs desktop build:windows",
+    "build:mac:dmg": "node scripts/run-package-command.mjs desktop build:mac:dmg",
+    "server:dev": "node scripts/run-package-command.mjs server dev",
+    "server:start": "node scripts/run-package-command.mjs server start"
+  }
+}
