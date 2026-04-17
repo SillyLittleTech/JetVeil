@@ -4,17 +4,28 @@ const scramjet = new ScramjetServiceWorker();
 let configReady = false;
 let scramjetConfig = null;
 
+function applyConfigToRuntime(config) {
+  if (!config || typeof config !== "object") return;
+
+  // Scramjet reads config from both instance and global contexts depending on
+  // internal code path; set both to avoid undefined config at route/fetch time.
+  scramjet.config = config;
+  globalThis.$scramjet = config;
+}
+
 async function ensureConfig() {
   if (configReady) return;
   
   // If config was sent via postMessage, use it
   if (scramjetConfig) {
+    applyConfigToRuntime(scramjetConfig);
     configReady = true;
     return;
   }
   
   try {
     await scramjet.loadConfig();
+    applyConfigToRuntime(scramjet.config ?? globalThis.$scramjet);
     configReady = true;
   } catch (err) {
     console.error('[SW] Failed to load Scramjet config:', err);
@@ -25,6 +36,7 @@ async function ensureConfig() {
 self.addEventListener("message", (event) => {
   if (event.data.type === "SCRAMJET_CONFIG") {
     scramjetConfig = event.data.payload;
+    applyConfigToRuntime(scramjetConfig);
     configReady = true;
     console.log('[SW] Received Scramjet config:', scramjetConfig);
   }
@@ -47,6 +59,7 @@ self.addEventListener("fetch", (event) => {
 
       try {
         await ensureConfig();
+        const routeResult = scramjet.route(event);
 
         // Log all requests for debugging
         self.clients.matchAll().then((clients) => {
@@ -56,13 +69,13 @@ self.addEventListener("fetch", (event) => {
               url: event.request.url,
               method: event.request.method,
               isScramjetRoute: looksLikeScramjetRoute,
-              routeResult: scramjet.route(event),
+              routeResult,
               isFrameRequest,
             });
           });
         });
 
-        if (scramjet.route(event) || looksLikeScramjetRoute) {
+        if (routeResult || looksLikeScramjetRoute) {
           return await scramjet.fetch(event);
         }
 

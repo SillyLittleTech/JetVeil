@@ -93,16 +93,22 @@ jobs:
           node-version: 20
 
       - name: Build macOS artifacts
-        run: npm run build:mac
+        run: npm run build:mac:unsigned
 
       - uses: actions/upload-artifact@v4
         with:
           name: macos-build
-          path: |
-            desktop/dist/*-mac.zip
-            desktop/dist/*.dmg
-            desktop/dist/latest-mac.yml
+          path: desktop/dist/*-mac.zip
           if-no-files-found: error
+          retention-days: 7
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-build-metadata
+          path: |
+            desktop/dist/*.blockmap
+            desktop/dist/latest-mac.yml
+          if-no-files-found: warn
           retention-days: 7
 
   release:
@@ -141,3 +147,4 @@ jobs:
             artifacts/linux-build/*
             artifacts/windows-build/*
             artifacts/macos-build/*
+            artifacts/macos-build-metadata/*
