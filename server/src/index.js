@@ -20,9 +20,16 @@ import { Agent as HttpsAgent } from "node:https";
 import { createBareServer } from "@tomphttp/bare-server-node";
 import { lookup as mimeLookup } from "mime-types";
 
-import { scramjetPath } from "@mercuryworkshop/scramjet/path";
 import { baremuxPath } from "@mercuryworkshop/bare-mux/node";
 import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+let scramjetPath = "";
+try {
+  scramjetPath = require("@mercuryworkshop/scramjet/path").scramjetPath;
+} catch (e) {
+  scramjetPath = require("@mercuryworkshop/scramjet/lib/index.cjs").scramjetPath;
+}
 
 // ─── Paths ────────────────────────────────────────────────────────────────────
 
@@ -31,7 +38,6 @@ const publicPath = resolve(join(__dirname, "../public"));
 const assetsPath = appAssetsPath();
 const scramjetBase = resolve(scramjetPath);
 const baremuxBase  = resolve(baremuxPath);
-const require = createRequire(import.meta.url);
 const bareAsModule3Entrypoint = require.resolve("@mercuryworkshop/bare-as-module3");
 const bareAsModule3Base = resolve(
   join(dirname(bareAsModule3Entrypoint), "../dist")
@@ -42,9 +48,11 @@ function appAssetsPath() {
     return resolve(join(__dirname, "../../assets"));
   }
 
-  const packagedAssets = resolve(join(process.resourcesPath, "assets"));
-  if (existsSync(packagedAssets)) {
-    return packagedAssets;
+  if (process.resourcesPath) {
+    const packagedAssets = resolve(join(process.resourcesPath, "assets"));
+    if (existsSync(packagedAssets)) {
+      return packagedAssets;
+    }
   }
 
   return resolve(join(__dirname, "../../assets"));
